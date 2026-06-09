@@ -1,3 +1,4 @@
+import fs from 'fs';
 import express, { Request, Response, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import path from 'path';
@@ -35,7 +36,34 @@ const upload = multer({
 });
 
 // Session manager mapping random token to session values
+const SESSION_FILE = path.join(process.cwd(), '.berry_sessions.json');
 const sessions = new Map<string, { role: 'tenant' | 'master'; tenant_id?: string; username?: string }>();
+
+function loadSessions() {
+  try {
+    if (fs.existsSync(SESSION_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
+      for (const [k, v] of Object.entries(raw)) {
+        sessions.set(k, v as any);
+      }
+      console.log(`[SESSION] Loaded ${sessions.size} sessions from disk`);
+    }
+  } catch (e) {
+    console.warn('[SESSION] Failed to load sessions from disk');
+  }
+}
+
+function saveSessions() {
+  try {
+    const obj: Record<string, any> = {};
+    for (const [k, v] of sessions.entries()) obj[k] = v;
+    fs.writeFileSync(SESSION_FILE, JSON.stringify(obj, null, 2), 'utf-8');
+  } catch (e) {
+    console.warn('[SESSION] Failed to save sessions to disk');
+  }
+}
+
+loadSessions();
 
 // Secret key configurations
 const MASTER_ADMIN_SECRET = process.env.MASTER_ADMIN_SECRET || 'berry_master_secret_2026';
@@ -191,6 +219,7 @@ app.post('/api/auth/tenant-login', (req: Request, res: Response) => {
     // Success login
     const sessionId = 'sess_' + crypto.randomUUID();
     sessions.set(sessionId, { role: 'tenant', tenant_id });
+    saveSessions();
     res.cookie('berry_session_id', sessionId, { httpOnly: true, path: '/' });
     res.json({ status: 'success', role: 'tenant', tenant_id, name: tenant.name, message: 'Password set and logged in matches successfully.' });
     return;
@@ -210,6 +239,7 @@ app.post('/api/auth/tenant-login', (req: Request, res: Response) => {
 
     const sessionId = 'sess_' + crypto.randomUUID();
     sessions.set(sessionId, { role: 'tenant', tenant_id });
+    saveSessions();
     res.cookie('berry_session_id', sessionId, { httpOnly: true, path: '/' });
     res.json({ status: 'success', role: 'tenant', tenant_id, name: tenant.name });
     return;
@@ -228,6 +258,7 @@ app.post('/api/auth/tenant-login', (req: Request, res: Response) => {
 
   const sessionId = 'sess_' + crypto.randomUUID();
   sessions.set(sessionId, { role: 'tenant', tenant_id });
+  saveSessions();
   res.cookie('berry_session_id', sessionId, { httpOnly: true, path: '/' });
   res.json({ status: 'success', role: 'tenant', tenant_id, name: tenant.name });
 });
@@ -248,6 +279,7 @@ app.post('/api/auth/master-login', (req: Request, res: Response) => {
 
   const sessionId = 'master_' + crypto.randomUUID();
   sessions.set(sessionId, { role: 'master' });
+  saveSessions();
   res.cookie('berry_session_id', sessionId, { httpOnly: true, path: '/' });
   res.json({ status: 'success', role: 'master', username: 'Master Owner' });
 });
@@ -257,6 +289,7 @@ app.post('/api/auth/logout', (req: Request, res: Response) => {
   const sessionId = req.cookies.berry_session_id;
   if (sessionId) {
     sessions.delete(sessionId);
+    saveSessions();
   }
   res.clearCookie('berry_session_id', { path: '/' });
   res.json({ status: 'success', message: 'Logged out successfully' });

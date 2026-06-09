@@ -57,7 +57,7 @@ export default function App() {
 
   const fetchSession = async () => {
     try {
-      const res = await fetch('/api/auth/me');
+      const res = await fetch('/api/auth/me', { credentials: 'include' });
       const data = await res.json();
       if (data.isAuthenticated) {
         setAuth({ role: data.role, tenant_id: data.tenant_id, name: data.name, bot_username: data.bot_username });
@@ -84,11 +84,11 @@ export default function App() {
     setTenantOverviewLoading(true);
     try {
       const [overviewRes, prodRes, varRes, setRes, credRes] = await Promise.all([
-        fetch('/api/tenant/overview'),
-        fetch('/api/tenant/products'),
-        fetch('/api/tenant/variants'),
-        fetch('/api/tenant/settings'),
-        fetch('/api/tenant/credentials')
+        fetch('/api/tenant/overview', { credentials: 'include' }),
+        fetch('/api/tenant/products', { credentials: 'include' }),
+        fetch('/api/tenant/variants', { credentials: 'include' }),
+        fetch('/api/tenant/settings', { credentials: 'include' }),
+        fetch('/api/tenant/credentials', { credentials: 'include' })
       ]);
 
       const [overview, prodList, varList, setList, credList] = await Promise.all([
@@ -120,7 +120,7 @@ export default function App() {
       const query = new URLSearchParams();
       if (status) query.set('status', status);
       if (search) query.set('search', search);
-      const res = await fetch(`/api/tenant/orders?${query.toString()}`);
+      const res = await fetch(`/api/tenant/orders?${query.toString()}`, { credentials: 'include' });
       const list = await res.json();
       setOrders(list || []);
     } catch (e) {
@@ -132,9 +132,9 @@ export default function App() {
     setTenantOverviewLoading(true);
     try {
       const [overviewRes, tenantsRes, monitorRes] = await Promise.all([
-        fetch('/api/master/overview'),
-        fetch('/api/master/tenants'),
-        fetch('/api/master/rental-monitor')
+        fetch('/api/master/overview', { credentials: 'include' }),
+        fetch('/api/master/tenants', { credentials: 'include' }),
+        fetch('/api/master/rental-monitor', { credentials: 'include' })
       ]);
 
       const [overview, tenantsList, monitorList] = await Promise.all([
@@ -166,6 +166,7 @@ export default function App() {
       const res = await fetch('/api/auth/tenant-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ tenant_id: tenantIdInput.trim(), password: tenantPasswordInput })
       });
       const data = await res.json();
@@ -192,6 +193,7 @@ export default function App() {
       const res = await fetch('/api/auth/master-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ master_secret: masterSecretInput })
       });
       const data = await res.json();
@@ -210,7 +212,7 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
     setAuth(false);
     setTenantIdInput('');
     setTenantPasswordInput('');
@@ -225,6 +227,7 @@ export default function App() {
     const res = await fetch('/api/tenant/products', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(form)
     });
     if (res.ok) loadTenantData();
@@ -234,6 +237,7 @@ export default function App() {
     const res = await fetch(`/api/tenant/products/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(updates)
     });
     if (res.ok) loadTenantData();
@@ -241,7 +245,7 @@ export default function App() {
 
   const handleDeleteProduct = async (id: string) => {
     if (!confirm("Are you sure you want to delete this listing product? This can't be undone.")) return;
-    const res = await fetch(`/api/tenant/products/${id}`, { method: 'DELETE' });
+    const res = await fetch(`/api/tenant/products/${id}`, { method: 'DELETE', credentials: 'include' });
     if (res.ok) loadTenantData();
   };
 
@@ -249,6 +253,7 @@ export default function App() {
     const res = await fetch('/api/tenant/variants', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(form)
     });
     if (res.ok) loadTenantData();
@@ -258,6 +263,7 @@ export default function App() {
     const res = await fetch(`/api/tenant/variants/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(updates)
     });
     if (res.ok) loadTenantData();
@@ -267,6 +273,7 @@ export default function App() {
     const res = await fetch(`/api/tenant/orders/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ status, notes })
     });
     if (res.ok) {
@@ -278,6 +285,7 @@ export default function App() {
     const res = await fetch('/api/tenant/credentials', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ product_id: productId, variant_id: variantId, raw_text: text })
     });
     const parsed = await res.json();
@@ -289,6 +297,7 @@ export default function App() {
     const res = await fetch(`/api/tenant/settings/${key}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ value })
     });
     if (res.ok) {
@@ -301,6 +310,7 @@ export default function App() {
     const res = await fetch('/api/tenant/broadcast', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ message: text })
     });
     const data = await res.json();
@@ -319,6 +329,7 @@ export default function App() {
     const res = await fetch('/api/master/tenants', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(form)
     });
     const data = await res.json();
@@ -330,29 +341,30 @@ export default function App() {
     const res = await fetch(`/api/master/tenants/${id}/extend`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ months })
     });
     if (res.ok) loadMasterData();
   };
 
   const handleSuspendTenant = async (id: string) => {
-    const res = await fetch(`/api/master/tenants/${id}/suspend`, { method: 'POST' });
+    const res = await fetch(`/api/master/tenants/${id}/suspend`, { method: 'POST', credentials: 'include' });
     if (res.ok) loadMasterData();
   };
 
   const handleActivateTenant = async (id: string) => {
-    const res = await fetch(`/api/master/tenants/${id}/activate`, { method: 'POST' });
+    const res = await fetch(`/api/master/tenants/${id}/activate`, { method: 'POST', credentials: 'include' });
     if (res.ok) loadMasterData();
   };
 
   const handleResetPassword = async (id: string) => {
-    await fetch(`/api/master/tenants/${id}/reset-password`, { method: 'POST' });
+    await fetch(`/api/master/tenants/${id}/reset-password`, { method: 'POST', credentials: 'include' });
     loadMasterData();
   };
 
   const handleToggleDashboard = async (id: string, enable: boolean) => {
     const route = enable ? 'enable-dashboard' : 'disable-dashboard';
-    await fetch(`/api/master/tenants/${id}/${route}`, { method: 'POST' });
+    await fetch(`/api/master/tenants/${id}/${route}`, { method: 'POST', credentials: 'include' });
     loadMasterData();
   };
 
