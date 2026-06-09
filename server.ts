@@ -3,7 +3,7 @@ import cookieParser from 'cookie-parser';
 import path from 'path';
 import multer from 'multer';
 import { createClient } from '@supabase/supabase-js';
-import { createServer as createViteServer } from 'vite';
+
 import { db, hashPassword, verifyPassword } from './src/server-db';
 import { Tenant } from './src/types';
 
@@ -1190,16 +1190,13 @@ app.get('/api/master/rental-monitor', requireMasterAuth, (req: Request, res: Res
 });
 
 // -------------------------------------------------------------------
-// VITE INTEGRATION MIDDLEWARE
+// PRODUCTION STATIC SERVING / DEV VITE
 // -------------------------------------------------------------------
 
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+    const { setupViteDevServer } = await import("./server/vite-dev");
+    await setupViteDevServer(app);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
