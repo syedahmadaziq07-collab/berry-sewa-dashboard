@@ -1532,13 +1532,19 @@ async function startServer() {
     const { setupViteDevServer } = await import("./server/vite-dev");
     await setupViteDevServer(app);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const clientDist = path.resolve(process.cwd(), "dist", "client");
+
+    console.log("[startup] NODE_ENV:", process.env.NODE_ENV);
+    console.log("[startup] Serving clientDist:", clientDist);
+    console.log("[startup] clientDist exists:", fs.existsSync(clientDist));
+    console.log("[startup] index.html exists:", fs.existsSync(path.join(clientDist, "index.html")));
+    console.log("[startup] assets dir exists:", fs.existsSync(path.join(clientDist, "assets")));
 
     // Serve static assets with long cache for hashed files (but not index.html)
-    app.use(express.static(distPath, {
-      maxAge: '1y',
-      immutable: true,
+    app.use(express.static(clientDist, {
       index: false,
+      maxAge: "1y",
+      immutable: true,
     }));
 
     // SPA fallback — serve index.html for non-file routes with no-cache
@@ -1550,7 +1556,7 @@ async function startServer() {
         return;
       }
       res.setHeader('Cache-Control', 'no-cache');
-      res.sendFile(path.join(distPath, 'index.html'));
+      res.sendFile(path.join(clientDist, 'index.html'));
     });
   }
 

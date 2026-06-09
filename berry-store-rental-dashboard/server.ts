@@ -1,3 +1,4 @@
+import fs from 'fs';
 import express, { Request, Response, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import path from 'path';
@@ -1201,11 +1202,18 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath, {
-      maxAge: '1y',
-      immutable: true,
+    const clientDist = path.resolve(process.cwd(), "dist", "client");
+
+    console.log("[startup] NODE_ENV:", process.env.NODE_ENV);
+    console.log("[startup] Serving clientDist:", clientDist);
+    console.log("[startup] clientDist exists:", fs.existsSync(clientDist));
+    console.log("[startup] index.html exists:", fs.existsSync(path.join(clientDist, "index.html")));
+    console.log("[startup] assets dir exists:", fs.existsSync(path.join(clientDist, "assets")));
+
+    app.use(express.static(clientDist, {
       index: false,
+      maxAge: "1y",
+      immutable: true,
     }));
     app.get('*', (req, res) => {
       const ext = path.extname(req.path).toLowerCase();
@@ -1214,7 +1222,7 @@ async function startServer() {
         return;
       }
       res.setHeader('Cache-Control', 'no-cache');
-      res.sendFile(path.join(distPath, 'index.html'));
+      res.sendFile(path.join(clientDist, 'index.html'));
     });
   }
 
