@@ -395,7 +395,7 @@ app.get('/api/tenant/overview', requireTenantAuth, async (req: Request, res: Res
       supabaseGet(tenantId, 'users'),
       supabaseGet(tenantId, 'bot_settings'),
     ]);
-    if (p) products = p;
+    if (p) products = p.map(mapRow);
     if (o) orders = o;
     if (u) users = u;
     if (s) settings = s;
@@ -511,6 +511,26 @@ app.get('/api/tenant/overview', requireTenantAuth, async (req: Request, res: Res
   });
 });
 
+// Helper: map Supabase row is_active back to active for frontend
+function mapRow(row: any): any {
+  if (!row) return row;
+  if ('is_active' in row) {
+    row = { ...row, active: row.is_active };
+    delete row.is_active;
+  }
+  return row;
+}
+
+// Helper: build update payload, renaming active -> is_active for Supabase
+function toSupabasePayload(body: any): any {
+  const p: any = { ...body };
+  if ('active' in p) {
+    p.is_active = p.active;
+    delete p.active;
+  }
+  return p;
+}
+
 // GET /api/tenant/products
 app.get('/api/tenant/products', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
@@ -527,7 +547,7 @@ app.get('/api/tenant/products', requireTenantAuth, async (req: Request, res: Res
     res.status(500).json({ error: `Supabase query failed: ${error.message}` });
     return;
   }
-  res.json(data || []);
+  res.json((data || []).map(mapRow));
 });
 
 // POST /api/tenant/products
@@ -548,14 +568,14 @@ app.post('/api/tenant/products', requireTenantAuth, async (req: Request, res: Re
     description: description || '',
     stock: 0,
     auto_delivery: !!auto_delivery,
-    active: active !== undefined ? !!active : true,
+    is_active: active !== undefined ? !!active : true,
   };
 
   console.log('[PRODUCT_CREATE] session tenant_id:', tenantId);
   console.log('[PRODUCT_CREATE] payload:', JSON.stringify(productPayload));
 
   if (!supabase) {
-    const product = db.createProduct(productPayload);
+    const product = db.createProduct({ ...productPayload, active: productPayload.is_active });
     console.log('[PRODUCT_CREATE] Dev mode — saved to local DB, id:', product.id);
     db.log(tenantId, 'PRODUCT_CREATE', `Created product: "${name}" [ID: ${product.id}]`);
     res.status(201).json(product);
@@ -576,7 +596,7 @@ app.post('/api/tenant/products', requireTenantAuth, async (req: Request, res: Re
 
   console.log('[PRODUCT_CREATE] Supabase success, product id:', data.id);
   db.log(tenantId, 'PRODUCT_CREATE', `Created product: "${name}" [ID: ${data.id}]`);
-  res.status(201).json(data);
+  res.status(201).json(mapRow(data));
 });
 
 // PATCH /api/tenant/products/:id
@@ -598,7 +618,7 @@ app.patch('/api/tenant/products/:id', requireTenantAuth, async (req: Request, re
 
   const { data, error } = await supabase
     .from('products')
-    .update(req.body)
+    .update(toSupabasePayload(req.body))
     .eq('id', productId)
     .eq('tenant_id', tenantId)
     .select()
@@ -616,7 +636,7 @@ app.patch('/api/tenant/products/:id', requireTenantAuth, async (req: Request, re
   }
 
   db.log(tenantId, 'PRODUCT_UPDATE', `Updated product: "${data.name}"`);
-  res.json(data);
+  res.json(mapRow(data));
 });
 
 // DELETE /api/tenant/products/:id
@@ -668,7 +688,7 @@ app.get('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Res
     res.status(500).json({ error: `Supabase query failed: ${error.message}` });
     return;
   }
-  res.json(data || []);
+  res.json((data || []).map(mapRow));
 });
 
 // POST /api/tenant/variants
@@ -687,7 +707,7 @@ app.post('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Re
     name,
     price: parseFloat(price) || 0,
     stock: parseInt(stock) || 0,
-    active: active !== undefined ? !!active : true,
+    is_active: active !== undefined ? !!active : true,
   };
 
   console.log('[VARIANT_CREATE] session tenant_id:', tenantId);
@@ -700,7 +720,7 @@ app.post('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Re
       res.status(404).json({ error: 'Matching product not found' });
       return;
     }
-    const vari = db.createVariant(variantPayload);
+    const vari = db.createVariant({ ...variantPayload, active: variantPayload.is_active });
     console.log('[VARIANT_CREATE] Dev mode — saved to local DB, id:', vari.id);
     db.log(tenantId, 'VARIANT_CREATE', `Created variant "${name}" for product "${product.name}"`);
     res.json(vari);
@@ -734,7 +754,7 @@ app.post('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Re
 
   console.log('[VARIANT_CREATE] Supabase success, variant id:', data.id);
   db.log(tenantId, 'VARIANT_CREATE', `Created variant "${name}" for product "${product.name}"`);
-  res.json(data);
+  res.json(mapRow(data));
 });
 
 // PATCH /api/tenant/variants/:id
@@ -757,7 +777,7 @@ app.patch('/api/tenant/variants/:id', requireTenantAuth, async (req: Request, re
 
   const { data, error } = await supabase
     .from('product_variants')
-    .update(req.body)
+    .update(toSupabasePayload(req.body))
     .eq('id', variantId)
     .eq('tenant_id', tenantId)
     .select()
@@ -775,7 +795,7 @@ app.patch('/api/tenant/variants/:id', requireTenantAuth, async (req: Request, re
   }
 
   db.log(tenantId, 'VARIANT_UPDATE', `Updated variant: "${data.name || variantId}"`);
-  res.json(data);
+  res.json(mapRow(data));
 });
 
 // GET /api/tenant/orders
@@ -941,8 +961,8 @@ app.get('/api/tenant/stocks', requireTenantAuth, async (req: Request, res: Respo
       supabaseGet(tenantId, 'product_variants'),
       supabaseGet(tenantId, 'credentials'),
     ]);
-    if (p) products = p;
-    if (v) variants = v;
+    if (p) products = p.map(mapRow);
+    if (v) variants = v.map(mapRow);
     if (c) credentials = c;
   }
 
@@ -1216,7 +1236,7 @@ app.get('/api/tenant/health', requireTenantAuth, async (req: Request, res: Respo
       supabaseGet(tenantId, 'credentials'),
       supabaseGet(tenantId, 'bot_settings'),
     ]);
-    if (p) products = p;
+    if (p) products = p.map(mapRow);
     if (c) credentials = c;
     if (s) settings = s;
   }
