@@ -18,6 +18,20 @@ const supabase = (supabaseUrl && supabaseServiceKey)
     })
   : null;
 
+// Supabase query helper for tenant-scoped read operations
+async function supabaseGet(tenantId: string, table: string, select?: string): Promise<any[] | null> {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from(table)
+    .select(select || '*')
+    .eq('tenant_id', tenantId);
+  if (error) {
+    console.error(`[SUPABASE] ${table} query error:`, error.message);
+    return null;
+  }
+  return data || [];
+}
+
 // Initialize Multer for safe memory storage file uploading
 const memoryStorage = multer.memoryStorage();
 const upload = multer({
@@ -365,30 +379,54 @@ app.post('/api/auth/logout', (req: Request, res: Response) => {
 // -------------------------------------------------------------------
 
 // GET /api/tenant/overview
-app.get('/api/tenant/overview', requireTenantAuth, (req: Request, res: Response) => {
+app.get('/api/tenant/overview', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
   const tenant = db.getTenant(tenantId);
-  const products = db.getProducts(tenantId);
-  const orders = db.getOrders(tenantId);
-  const users = db.getUsers(tenantId);
+
+  let products: any[] = [];
+  let orders: any[] = [];
+  let users: any[] = [];
+  let settings: any[] = [];
+
+  if (supabase) {
+    const [p, o, u, s] = await Promise.all([
+      supabaseGet(tenantId, 'products'),
+      supabaseGet(tenantId, 'orders'),
+      supabaseGet(tenantId, 'users'),
+      supabaseGet(tenantId, 'bot_settings'),
+    ]);
+    if (p) products = p;
+    if (o) orders = o;
+    if (u) users = u;
+    if (s) settings = s;
+  }
+
+  // Fallback to local DB if Supabase returned nothing or is not configured
+  if (products.length === 0 && orders.length === 0) {
+    products = db.getProducts(tenantId);
+    orders = db.getOrders(tenantId);
+    users = db.getUsers(tenantId);
+    settings = db.getSettings(tenantId);
+  }
+
   const logs = db.getAuditLogs(tenantId).slice(0, 5);
 
   // Stats calculate
   const todayStart = new Date();
   todayStart.setHours(0,0,0,0);
 
-  const todayOrders = orders.filter(o => new Date(o.created_at) >= todayStart);
+  const todayOrders = orders.filter((o: any) => new Date(o.created_at) >= todayStart);
   const todayRevenue = todayOrders
-    .filter(o => o.status === 'completed')
-    .reduce((sum, o) => sum + o.amount, 0);
+    .filter((o: any) => o.status === 'completed')
+    .reduce((sum: number, o: any) => sum + (o.amount || 0), 0);
 
-  const pendingCount = orders.filter(o => o.status === 'pending').length;
-  const waitingApprovalCount = orders.filter(o => o.status === 'waiting_approval').length;
-  const totalCompletedCount = orders.filter(o => o.status === 'completed').length;
+  const pendingCount = orders.filter((o: any) => o.status === 'pending').length;
+  const waitingApprovalCount = orders.filter((o: any) => o.status === 'waiting_approval').length;
+  const totalCompletedCount = orders.filter((o: any) => o.status === 'completed').length;
 
   const totalRevenue = orders
-    .filter(o => o.status === 'completed')
-    .reduce((sum, o) => sum + o.amount, 0);
+    .filter((o: any) => o.status === 'completed')
+    .reduce((sum: number, o: any) => sum + (o.amount || 0), 0);
 
   // Group by last 7 days revenue for Recharts
   const daysMap: Record<string, number> = {};
@@ -403,7 +441,7 @@ app.get('/api/tenant/overview', requireTenantAuth, (req: Request, res: Response)
     if (o.status === 'completed') {
       const dateStr = new Date(o.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       if (dateStr in daysMap) {
-        daysMap[dateStr] += o.amount;
+        daysMap[dateStr] += (o.amount || 0);
       }
     }
   }
@@ -422,28 +460,27 @@ app.get('/api/tenant/overview', requireTenantAuth, (req: Request, res: Response)
   }
 
   const topProducts = Object.keys(productSalesCount).map(pId => {
-    const p = products.find(prod => prod.id === pId);
+    const p = products.find((prod: any) => prod.id === pId);
     return {
       id: pId,
       name: p ? p.name : "Unknown Product",
       salesCount: productSalesCount[pId],
-      revenue: productSalesCount[pId] * (p ? p.price : 0)
+      revenue: productSalesCount[pId] * (p ? (p.price || 0) : 0)
     };
   }).sort((a,b) => b.salesCount - a.salesCount).slice(0, 3);
 
   // Warning metrics
   const warnings: string[] = [];
-  const lowStockProducts = products.filter(p => p.stock === 0 && p.active);
+  const lowStockProducts = products.filter((p: any) => (p.stock === 0 || p.stock === '0') && p.active !== false);
   if (lowStockProducts.length > 0) {
     warnings.push(`${lowStockProducts.length} active products are currently out of stock`);
   }
 
   // Settings payment QR and banner check
-  const settings = db.getSettings(tenantId);
-  const qrSetting = settings.find(s => s.key === 'payment_qr_file_id')?.value;
-  const qrUrlSetting = settings.find(s => s.key === 'payment_qr_url')?.value;
-  const bannerSetting = settings.find(s => s.key === 'banner_file_id')?.value;
-  const bannerUrlSetting = settings.find(s => s.key === 'banner_url')?.value;
+  const qrSetting = settings.find((s: any) => s.key === 'payment_qr_file_id')?.value;
+  const qrUrlSetting = settings.find((s: any) => s.key === 'payment_qr_url')?.value;
+  const bannerSetting = settings.find((s: any) => s.key === 'banner_file_id')?.value;
+  const bannerUrlSetting = settings.find((s: any) => s.key === 'banner_url')?.value;
 
   if (!qrSetting && !qrUrlSetting) {
     warnings.push("Payment QR code is missing in Bot Settings. Unconfirmed payments will block users.");
@@ -475,9 +512,13 @@ app.get('/api/tenant/overview', requireTenantAuth, (req: Request, res: Response)
 });
 
 // GET /api/tenant/products
-app.get('/api/tenant/products', requireTenantAuth, (req: Request, res: Response) => {
+app.get('/api/tenant/products', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
-  res.json(db.getProducts(tenantId));
+  let products: any[] | null = null;
+  if (supabase) {
+    products = await supabaseGet(tenantId, 'products');
+  }
+  res.json(products || db.getProducts(tenantId) || []);
 });
 
 // POST /api/tenant/products
@@ -538,9 +579,13 @@ app.delete('/api/tenant/products/:id', requireTenantAuth, (req: Request, res: Re
 });
 
 // GET /api/tenant/variants
-app.get('/api/tenant/variants', requireTenantAuth, (req: Request, res: Response) => {
+app.get('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
-  res.json(db.getVariants(tenantId));
+  let variants: any[] | null = null;
+  if (supabase) {
+    variants = await supabaseGet(tenantId, 'product_variants');
+  }
+  res.json(variants || db.getVariants(tenantId) || []);
 });
 
 // POST /api/tenant/variants
@@ -590,11 +635,18 @@ app.patch('/api/tenant/variants/:id', requireTenantAuth, (req: Request, res: Res
 });
 
 // GET /api/tenant/orders
-app.get('/api/tenant/orders', requireTenantAuth, (req: Request, res: Response) => {
+app.get('/api/tenant/orders', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
   const { status, search } = req.query;
 
-  let list = db.getOrders(tenantId);
+  let list: any[] = [];
+  if (supabase) {
+    const data = await supabaseGet(tenantId, 'orders');
+    if (data) list = data;
+  }
+  if (list.length === 0) {
+    list = db.getOrders(tenantId);
+  }
 
   if (status && status !== 'all') {
     list = list.filter(o => o.status === status);
@@ -613,9 +665,24 @@ app.get('/api/tenant/orders', requireTenantAuth, (req: Request, res: Response) =
 });
 
 // GET /api/tenant/orders/:id
-app.get('/api/tenant/orders/:id', requireTenantAuth, (req: Request, res: Response) => {
+app.get('/api/tenant/orders/:id', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
-  const order = db.getOrderById(req.params.id, tenantId);
+  const orderId = req.params.id;
+
+  let order: any = null;
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('id', orderId)
+      .single();
+    if (!error && data) order = data;
+  }
+  if (!order) {
+    order = db.getOrderById(orderId, tenantId);
+  }
+
   if (!order) {
     res.status(404).json({ error: 'Order not found' });
     return;
@@ -650,10 +717,25 @@ app.patch('/api/tenant/orders/:id', requireTenantAuth, (req: Request, res: Respo
 });
 
 // GET /api/tenant/sales
-app.get('/api/tenant/sales', requireTenantAuth, (req: Request, res: Response) => {
+app.get('/api/tenant/sales', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
-  const orders = db.getOrders(tenantId).filter(o => o.status === 'completed');
-  const products = db.getProducts(tenantId);
+  let orders: any[] = [];
+  let products: any[] = [];
+
+  if (supabase) {
+    const [o, p] = await Promise.all([
+      supabaseGet(tenantId, 'orders'),
+      supabaseGet(tenantId, 'products'),
+    ]);
+    if (o) orders = o;
+    if (p) products = p;
+  }
+  if (orders.length === 0) {
+    orders = db.getOrders(tenantId);
+    products = db.getProducts(tenantId);
+  }
+
+  orders = orders.filter((o: any) => o.status === 'completed');
 
   const totalRevenue = orders.reduce((sum, o) => sum + o.amount, 0);
   const avgOrderValue = orders.length > 0 ? (totalRevenue / orders.length) : 0;
@@ -703,9 +785,45 @@ app.get('/api/tenant/sales', requireTenantAuth, (req: Request, res: Response) =>
 });
 
 // GET /api/tenant/stocks
-app.get('/api/tenant/stocks', requireTenantAuth, (req: Request, res: Response) => {
+app.get('/api/tenant/stocks', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
-  res.json(db.getStocks(tenantId));
+  let products: any[] = [];
+  let variants: any[] = [];
+  let credentials: any[] = [];
+
+  if (supabase) {
+    const [p, v, c] = await Promise.all([
+      supabaseGet(tenantId, 'products'),
+      supabaseGet(tenantId, 'product_variants'),
+      supabaseGet(tenantId, 'credentials'),
+    ]);
+    if (p) products = p;
+    if (v) variants = v;
+    if (c) credentials = c;
+  }
+
+  if (products.length === 0) {
+    const stocks = db.getStocks(tenantId);
+    res.json(stocks);
+    return;
+  }
+
+  const result = products.map((prod: any) => {
+    const prodVariants = variants.filter((v: any) => v.product_id === prod.id);
+    const totalCreds = credentials.filter((c: any) => c.product_id === prod.id);
+    const availableCreds = totalCreds.filter((c: any) => !c.is_used).length;
+    const deliveredCreds = totalCreds.filter((c: any) => c.is_used).length;
+
+    return {
+      product: prod,
+      variants: prodVariants,
+      totalCredentials: totalCreds.length,
+      availableCredentials: availableCreds,
+      deliveredCount: deliveredCreds
+    };
+  });
+
+  res.json(result);
 });
 
 // PATCH /api/tenant/stocks/:id
@@ -730,9 +848,13 @@ app.patch('/api/tenant/stocks/:id', requireTenantAuth, (req: Request, res: Respo
 });
 
 // GET /api/tenant/credentials
-app.get('/api/tenant/credentials', requireTenantAuth, (req: Request, res: Response) => {
+app.get('/api/tenant/credentials', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
-  res.json(db.getCredentials(tenantId));
+  let creds: any[] | null = null;
+  if (supabase) {
+    creds = await supabaseGet(tenantId, 'credentials');
+  }
+  res.json(creds || db.getCredentials(tenantId) || []);
 });
 
 // POST /api/tenant/credentials
@@ -751,9 +873,13 @@ app.post('/api/tenant/credentials', requireTenantAuth, (req: Request, res: Respo
 });
 
 // GET /api/tenant/settings
-app.get('/api/tenant/settings', requireTenantAuth, (req: Request, res: Response) => {
+app.get('/api/tenant/settings', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
-  res.json(db.getSettings(tenantId));
+  let settings: any[] | null = null;
+  if (supabase) {
+    settings = await supabaseGet(tenantId, 'bot_settings');
+  }
+  res.json(settings || db.getSettings(tenantId) || []);
 });
 
 // PATCH /api/tenant/settings/:key
@@ -919,7 +1045,7 @@ app.delete('/api/tenant/media/banner', requireTenantAuth, async (req: Request, r
 });
 
 // GET /api/tenant/rental
-app.get('/api/tenant/rental', requireTenantAuth, (req: Request, res: Response) => {
+app.get('/api/tenant/rental', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
   const tenant = db.getTenant(tenantId);
   const payments = db.getRentalPayments(tenantId);
@@ -932,12 +1058,30 @@ app.get('/api/tenant/rental', requireTenantAuth, (req: Request, res: Response) =
 });
 
 // GET /api/tenant/health
-app.get('/api/tenant/health', requireTenantAuth, (req: Request, res: Response) => {
+app.get('/api/tenant/health', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
   const tenant = db.getTenant(tenantId);
-  const products = db.getProducts(tenantId);
-  const credentials = db.getCredentials(tenantId);
-  const settings = db.getSettings(tenantId);
+
+  let products: any[] = [];
+  let credentials: any[] = [];
+  let settings: any[] = [];
+
+  if (supabase) {
+    const [p, c, s] = await Promise.all([
+      supabaseGet(tenantId, 'products'),
+      supabaseGet(tenantId, 'credentials'),
+      supabaseGet(tenantId, 'bot_settings'),
+    ]);
+    if (p) products = p;
+    if (c) credentials = c;
+    if (s) settings = s;
+  }
+
+  if (products.length === 0) {
+    products = db.getProducts(tenantId);
+    credentials = db.getCredentials(tenantId);
+    settings = db.getSettings(tenantId);
+  }
 
   // Health calculate
   // heartbeats older than 10 mins are offline
@@ -971,7 +1115,7 @@ app.get('/api/tenant/health', requireTenantAuth, (req: Request, res: Response) =
 });
 
 // POST /api/tenant/broadcast
-app.post('/api/tenant/broadcast', requireTenantAuth, (req: Request, res: Response) => {
+app.post('/api/tenant/broadcast', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
   const { message } = req.body;
 
@@ -980,7 +1124,14 @@ app.post('/api/tenant/broadcast', requireTenantAuth, (req: Request, res: Respons
     return;
   }
 
-  const users = db.getUsers(tenantId);
+  let users: any[] = [];
+  if (supabase) {
+    const data = await supabaseGet(tenantId, 'users');
+    if (data) users = data;
+  }
+  if (users.length === 0) {
+    users = db.getUsers(tenantId);
+  }
   
   db.log(tenantId, 'BROADCAST_TRIGGER', `Triggered Telegram notification broadcast to total recipients: ${users.length} bot users`);
   res.json({
@@ -1321,6 +1472,57 @@ app.get('/api/master/rental-monitor', requireMasterAuth, (req: Request, res: Res
   });
 });
 
+// GET /api/debug/tenant-data
+app.get('/api/debug/tenant-data', requireTenantAuth, async (req: Request, res: Response) => {
+  const tenantId = (req as any).tenant_id;
+
+  let products: any[] = [];
+  let variants: any[] = [];
+  let orders: any[] = [];
+  let credentials: any[] = [];
+  let users: any[] = [];
+  let settings: any[] = [];
+
+  if (supabase) {
+    const [p, v, o, c, u, s] = await Promise.all([
+      supabaseGet(tenantId, 'products'),
+      supabaseGet(tenantId, 'product_variants'),
+      supabaseGet(tenantId, 'orders'),
+      supabaseGet(tenantId, 'credentials'),
+      supabaseGet(tenantId, 'users'),
+      supabaseGet(tenantId, 'bot_settings'),
+    ]);
+    if (p) products = p;
+    if (v) variants = v;
+    if (o) orders = o;
+    if (c) credentials = c;
+    if (u) users = u;
+    if (s) settings = s;
+  }
+
+  const qrFileId = settings.find((s: any) => s.key === 'payment_qr_file_id')?.value || '';
+  const qrUrl = settings.find((s: any) => s.key === 'payment_qr_url')?.value || '';
+  const bannerFileId = settings.find((s: any) => s.key === 'banner_file_id')?.value || '';
+  const bannerUrl = settings.find((s: any) => s.key === 'banner_url')?.value || '';
+
+  res.json({
+    session_tenant_id: tenantId,
+    products_count: products.length,
+    variants_count: variants.length,
+    orders_count: orders.length,
+    credentials_count: credentials.length,
+    users_count: users.length,
+    bot_settings_count: settings.length,
+    payment_qr_file_id_exists: qrFileId ? 'yes' : 'no',
+    payment_qr_url_exists: qrUrl ? 'yes' : 'no',
+    banner_file_id_exists: bannerFileId ? 'yes' : 'no',
+    banner_url_exists: bannerUrl ? 'yes' : 'no',
+    supabase_configured: supabase !== null,
+  });
+});
+
+// -------------------------------------------------------------------
+// MASTER OWNER API (Require requireMasterAuth)
 // -------------------------------------------------------------------
 // PRODUCTION STATIC SERVING / DEV VITE
 // -------------------------------------------------------------------
