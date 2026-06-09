@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import path from 'path';
 import multer from 'multer';
+import WebSocket from 'ws';
 import { createClient } from '@supabase/supabase-js';
 
 import { db, hashPassword, verifyPassword } from './src/server-db';
@@ -11,7 +12,9 @@ import { Tenant } from './src/types';
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = (supabaseUrl && supabaseServiceKey)
-  ? createClient(supabaseUrl, supabaseServiceKey)
+  ? createClient(supabaseUrl, supabaseServiceKey, {
+      realtime: { transport: WebSocket },
+    })
   : null;
 
 // Initialize Multer for safe memory storage file uploading
