@@ -230,7 +230,12 @@ export default function App() {
       credentials: 'include',
       body: JSON.stringify(form)
     });
-    if (res.ok) loadTenantData();
+    if (res.ok) {
+      loadTenantData();
+    } else {
+      const err = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
+      alert('Failed to create product: ' + (err.error || 'Unknown error'));
+    }
   };
 
   const handleUpdateProduct = async (id: string, updates: any) => {
@@ -240,13 +245,23 @@ export default function App() {
       credentials: 'include',
       body: JSON.stringify(updates)
     });
-    if (res.ok) loadTenantData();
+    if (res.ok) {
+      loadTenantData();
+    } else {
+      const err = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
+      alert('Failed to update product: ' + (err.error || 'Unknown error'));
+    }
   };
 
   const handleDeleteProduct = async (id: string) => {
     if (!confirm("Are you sure you want to delete this listing product? This can't be undone.")) return;
     const res = await fetch(`/api/tenant/products/${id}`, { method: 'DELETE', credentials: 'include' });
-    if (res.ok) loadTenantData();
+    if (res.ok) {
+      loadTenantData();
+    } else {
+      const err = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
+      alert('Failed to delete product: ' + (err.error || 'Unknown error'));
+    }
   };
 
   const handleCreateVariant = async (form: any) => {
@@ -256,7 +271,12 @@ export default function App() {
       credentials: 'include',
       body: JSON.stringify(form)
     });
-    if (res.ok) loadTenantData();
+    if (res.ok) {
+      loadTenantData();
+    } else {
+      const err = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
+      alert('Failed to create variant: ' + (err.error || 'Unknown error'));
+    }
   };
 
   const handleUpdateVariant = async (id: string, updates: any) => {
@@ -266,7 +286,12 @@ export default function App() {
       credentials: 'include',
       body: JSON.stringify(updates)
     });
-    if (res.ok) loadTenantData();
+    if (res.ok) {
+      loadTenantData();
+    } else {
+      const err = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
+      alert('Failed to update variant: ' + (err.error || 'Unknown error'));
+    }
   };
 
   const handleUpdateOrderStatus = async (id: string, status: any, notes?: string) => {

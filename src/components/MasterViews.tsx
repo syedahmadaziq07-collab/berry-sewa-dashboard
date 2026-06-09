@@ -623,7 +623,7 @@ SUPABASE_SERVICE_KEY=`;
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-gray-500 block mb-1">Monthly Cost ($)</label>
+                  <label className="text-gray-500 block mb-1">Monthly Cost (RM)</label>
                   <input
                     type="number"
                     step="0.01"

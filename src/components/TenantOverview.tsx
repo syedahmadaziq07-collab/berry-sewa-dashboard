@@ -149,7 +149,7 @@ export function TenantOverview({ data, loading, onNavigate }: TenantOverviewProp
               <h3 className="font-bold text-[#1D1D1F] text-sm">Revenue Trend</h3>
               <p className="text-xs text-gray-500 font-medium mt-0.5">Daily sales volume for the last 7 calendar days</p>
             </div>
-            <span className="text-xs font-semibold px-2.5 py-1 bg-gray-50 border border-gray-100 text-gray-500 rounded-full">USD ($)</span>
+            <span className="text-xs font-semibold px-2.5 py-1 bg-gray-50 border border-gray-100 text-gray-500 rounded-full">RM</span>
           </div>
           <div className="h-64 sm:h-72 w-full">
             <ResponsiveContainer width="100%" height="100%">

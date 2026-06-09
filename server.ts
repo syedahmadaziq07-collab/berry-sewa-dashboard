@@ -514,15 +514,24 @@ app.get('/api/tenant/overview', requireTenantAuth, async (req: Request, res: Res
 // GET /api/tenant/products
 app.get('/api/tenant/products', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
-  let products: any[] | null = null;
-  if (supabase) {
-    products = await supabaseGet(tenantId, 'products');
+  if (!supabase) {
+    res.json(db.getProducts(tenantId));
+    return;
   }
-  res.json(products || db.getProducts(tenantId) || []);
+  const { data, error } = await supabase
+    .from('products')
+    .select('*')
+    .eq('tenant_id', tenantId);
+  if (error) {
+    console.error('[SUPABASE] products query error:', error.message);
+    res.status(500).json({ error: `Supabase query failed: ${error.message}` });
+    return;
+  }
+  res.json(data || []);
 });
 
 // POST /api/tenant/products
-app.post('/api/tenant/products', requireTenantAuth, (req: Request, res: Response) => {
+app.post('/api/tenant/products', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
   const { name, price, duration, description, auto_delivery, active } = req.body;
 
@@ -531,65 +540,139 @@ app.post('/api/tenant/products', requireTenantAuth, (req: Request, res: Response
     return;
   }
 
-  const product = db.createProduct({
+  const productPayload = {
     tenant_id: tenantId,
     name,
     price: parseFloat(price) || 0,
     duration: duration || '1 month',
     description: description || '',
-    stock: 0, // initially 0 until variant or credentials loaded
+    stock: 0,
     auto_delivery: !!auto_delivery,
-    active: active !== undefined ? !!active : true
-  });
+    active: active !== undefined ? !!active : true,
+  };
 
-  db.log(tenantId, 'PRODUCT_CREATE', `Created product: "${name}" [ID: ${product.id}]`);
-  res.status(201).json(product);
+  console.log('[PRODUCT_CREATE] session tenant_id:', tenantId);
+  console.log('[PRODUCT_CREATE] payload:', JSON.stringify(productPayload));
+
+  if (!supabase) {
+    const product = db.createProduct(productPayload);
+    console.log('[PRODUCT_CREATE] Dev mode — saved to local DB, id:', product.id);
+    db.log(tenantId, 'PRODUCT_CREATE', `Created product: "${name}" [ID: ${product.id}]`);
+    res.status(201).json(product);
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from('products')
+    .insert(productPayload)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[PRODUCT_CREATE] Supabase error:', error.message);
+    res.status(500).json({ error: `Supabase insert failed: ${error.message}` });
+    return;
+  }
+
+  console.log('[PRODUCT_CREATE] Supabase success, product id:', data.id);
+  db.log(tenantId, 'PRODUCT_CREATE', `Created product: "${name}" [ID: ${data.id}]`);
+  res.status(201).json(data);
 });
 
 // PATCH /api/tenant/products/:id
-app.patch('/api/tenant/products/:id', requireTenantAuth, (req: Request, res: Response) => {
+app.patch('/api/tenant/products/:id', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
   const productId = req.params.id;
 
-  const product = db.getProductById(productId, tenantId);
-  if (!product) {
+  if (!supabase) {
+    const product = db.getProductById(productId, tenantId);
+    if (!product) {
+      res.status(404).json({ error: 'Product not found' });
+      return;
+    }
+    const updated = db.updateProduct(productId, tenantId, req.body);
+    db.log(tenantId, 'PRODUCT_UPDATE', `Updated product parameters: "${updated?.name}"`);
+    res.json(updated);
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from('products')
+    .update(req.body)
+    .eq('id', productId)
+    .eq('tenant_id', tenantId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[PRODUCT_UPDATE] Supabase error:', error.message);
+    res.status(500).json({ error: `Supabase update failed: ${error.message}` });
+    return;
+  }
+
+  if (!data) {
     res.status(404).json({ error: 'Product not found' });
     return;
   }
 
-  const updated = db.updateProduct(productId, tenantId, req.body);
-  db.log(tenantId, 'PRODUCT_UPDATE', `Updated product parameters: "${updated?.name}"`);
-  res.json(updated);
+  db.log(tenantId, 'PRODUCT_UPDATE', `Updated product: "${data.name}"`);
+  res.json(data);
 });
 
 // DELETE /api/tenant/products/:id
-app.delete('/api/tenant/products/:id', requireTenantAuth, (req: Request, res: Response) => {
+app.delete('/api/tenant/products/:id', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
   const productId = req.params.id;
 
-  const product = db.getProductById(productId, tenantId);
-  if (!product) {
-    res.status(404).json({ error: 'Product not found' });
+  if (!supabase) {
+    const product = db.getProductById(productId, tenantId);
+    if (!product) {
+      res.status(404).json({ error: 'Product not found' });
+      return;
+    }
+    db.deleteProduct(productId, tenantId);
+    db.log(tenantId, 'PRODUCT_DELETE', `Deleted product: "${product.name}" and cleared associated listings`);
+    res.json({ message: 'Product deleted' });
     return;
   }
 
-  db.deleteProduct(productId, tenantId);
-  db.log(tenantId, 'PRODUCT_DELETE', `Deleted product: "${product.name}" and cleared associated listings`);
+  const { error } = await supabase
+    .from('products')
+    .delete()
+    .eq('id', productId)
+    .eq('tenant_id', tenantId);
+
+  if (error) {
+    console.error('[PRODUCT_DELETE] Supabase error:', error.message);
+    res.status(500).json({ error: `Supabase delete failed: ${error.message}` });
+    return;
+  }
+
+  db.log(tenantId, 'PRODUCT_DELETE', `Deleted product ID: ${productId}`);
   res.json({ message: 'Product deleted' });
 });
 
 // GET /api/tenant/variants
 app.get('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
-  let variants: any[] | null = null;
-  if (supabase) {
-    variants = await supabaseGet(tenantId, 'product_variants');
+  if (!supabase) {
+    res.json(db.getVariants(tenantId));
+    return;
   }
-  res.json(variants || db.getVariants(tenantId) || []);
+  const { data, error } = await supabase
+    .from('product_variants')
+    .select('*')
+    .eq('tenant_id', tenantId);
+  if (error) {
+    console.error('[SUPABASE] product_variants query error:', error.message);
+    res.status(500).json({ error: `Supabase query failed: ${error.message}` });
+    return;
+  }
+  res.json(data || []);
 });
 
 // POST /api/tenant/variants
-app.post('/api/tenant/variants', requireTenantAuth, (req: Request, res: Response) => {
+app.post('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
   const { product_id, name, price, stock, active } = req.body;
 
@@ -598,40 +681,101 @@ app.post('/api/tenant/variants', requireTenantAuth, (req: Request, res: Response
     return;
   }
 
-  const product = db.getProductById(product_id, tenantId);
-  if (!product) {
-    res.status(404).json({ error: 'Matching product not found' });
-    return;
-  }
-
-  const vari = db.createVariant({
+  const variantPayload = {
     tenant_id: tenantId,
     product_id,
     name,
     price: parseFloat(price) || 0,
     stock: parseInt(stock) || 0,
-    active: active !== undefined ? !active : true
-  });
+    active: active !== undefined ? !!active : true,
+  };
 
+  console.log('[VARIANT_CREATE] session tenant_id:', tenantId);
+  console.log('[VARIANT_CREATE] product_id:', product_id);
+  console.log('[VARIANT_CREATE] payload:', JSON.stringify(variantPayload));
+
+  if (!supabase) {
+    const product = db.getProductById(product_id, tenantId);
+    if (!product) {
+      res.status(404).json({ error: 'Matching product not found' });
+      return;
+    }
+    const vari = db.createVariant(variantPayload);
+    console.log('[VARIANT_CREATE] Dev mode — saved to local DB, id:', vari.id);
+    db.log(tenantId, 'VARIANT_CREATE', `Created variant "${name}" for product "${product.name}"`);
+    res.json(vari);
+    return;
+  }
+
+  // Verify product exists in Supabase before creating variant
+  const { data: product } = await supabase
+    .from('products')
+    .select('id, name')
+    .eq('id', product_id)
+    .eq('tenant_id', tenantId)
+    .single();
+
+  if (!product) {
+    res.status(404).json({ error: 'Matching product not found in Supabase' });
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from('product_variants')
+    .insert(variantPayload)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[VARIANT_CREATE] Supabase error:', error.message);
+    res.status(500).json({ error: `Supabase insert failed: ${error.message}` });
+    return;
+  }
+
+  console.log('[VARIANT_CREATE] Supabase success, variant id:', data.id);
   db.log(tenantId, 'VARIANT_CREATE', `Created variant "${name}" for product "${product.name}"`);
-  res.json(vari);
+  res.json(data);
 });
 
 // PATCH /api/tenant/variants/:id
-app.patch('/api/tenant/variants/:id', requireTenantAuth, (req: Request, res: Response) => {
+app.patch('/api/tenant/variants/:id', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
   const variantId = req.params.id;
 
-  const lists = db.getVariants(tenantId);
-  const exists = lists.find(v => v.id === variantId);
-  if (!exists) {
+  if (!supabase) {
+    const lists = db.getVariants(tenantId);
+    const exists = lists.find((v: any) => v.id === variantId);
+    if (!exists) {
+      res.status(404).json({ error: 'Variant not found' });
+      return;
+    }
+    const updated = db.updateVariant(variantId, tenantId, req.body);
+    db.log(tenantId, 'VARIANT_UPDATE', `Updated variant parameters: "${updated?.name}"`);
+    res.json(updated);
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from('product_variants')
+    .update(req.body)
+    .eq('id', variantId)
+    .eq('tenant_id', tenantId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[VARIANT_UPDATE] Supabase error:', error.message);
+    res.status(500).json({ error: `Supabase update failed: ${error.message}` });
+    return;
+  }
+
+  if (!data) {
     res.status(404).json({ error: 'Variant not found' });
     return;
   }
 
-  const updated = db.updateVariant(variantId, tenantId, req.body);
-  db.log(tenantId, 'VARIANT_UPDATE', `Updated variant parameters: "${updated?.name}"`);
-  res.json(updated);
+  db.log(tenantId, 'VARIANT_UPDATE', `Updated variant: "${data.name || variantId}"`);
+  res.json(data);
 });
 
 // GET /api/tenant/orders
@@ -1476,48 +1620,64 @@ app.get('/api/master/rental-monitor', requireMasterAuth, (req: Request, res: Res
 app.get('/api/debug/tenant-data', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
 
-  let products: any[] = [];
-  let variants: any[] = [];
-  let orders: any[] = [];
-  let credentials: any[] = [];
-  let users: any[] = [];
-  let settings: any[] = [];
-
-  if (supabase) {
-    const [p, v, o, c, u, s] = await Promise.all([
-      supabaseGet(tenantId, 'products'),
-      supabaseGet(tenantId, 'product_variants'),
-      supabaseGet(tenantId, 'orders'),
-      supabaseGet(tenantId, 'credentials'),
-      supabaseGet(tenantId, 'users'),
-      supabaseGet(tenantId, 'bot_settings'),
-    ]);
-    if (p) products = p;
-    if (v) variants = v;
-    if (o) orders = o;
-    if (c) credentials = c;
-    if (u) users = u;
-    if (s) settings = s;
+  if (!supabase) {
+    res.json({
+      session_tenant_id: tenantId,
+      source: 'local_memory',
+      products_count: db.getProducts(tenantId).length,
+      variants_count: db.getVariants(tenantId).length,
+    });
+    return;
   }
 
-  const qrFileId = settings.find((s: any) => s.key === 'payment_qr_file_id')?.value || '';
-  const qrUrl = settings.find((s: any) => s.key === 'payment_qr_url')?.value || '';
-  const bannerFileId = settings.find((s: any) => s.key === 'banner_file_id')?.value || '';
-  const bannerUrl = settings.find((s: any) => s.key === 'banner_url')?.value || '';
+  let products: any[] = [];
+  let variants: any[] = [];
+  let supabaseError: string | null = null;
+
+  try {
+    const { data: p, error: pe } = await supabase
+      .from('products')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false });
+    if (pe) {
+      supabaseError = `products query error: ${pe.message}`;
+      console.error('[DEBUG] products error:', pe.message);
+    } else {
+      products = p || [];
+    }
+  } catch (e: any) {
+    supabaseError = `products exception: ${e.message}`;
+  }
+
+  try {
+    const { data: v, error: ve } = await supabase
+      .from('product_variants')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false });
+    if (ve) {
+      supabaseError = supabaseError
+        ? `${supabaseError} | variants error: ${ve.message}`
+        : `variants query error: ${ve.message}`;
+      console.error('[DEBUG] variants error:', ve.message);
+    } else {
+      variants = v || [];
+    }
+  } catch (e: any) {
+    supabaseError = supabaseError
+      ? `${supabaseError} | variants exception: ${e.message}`
+      : `variants exception: ${e.message}`;
+  }
 
   res.json({
     session_tenant_id: tenantId,
+    source: 'supabase',
     products_count: products.length,
     variants_count: variants.length,
-    orders_count: orders.length,
-    credentials_count: credentials.length,
-    users_count: users.length,
-    bot_settings_count: settings.length,
-    payment_qr_file_id_exists: qrFileId ? 'yes' : 'no',
-    payment_qr_url_exists: qrUrl ? 'yes' : 'no',
-    banner_file_id_exists: bannerFileId ? 'yes' : 'no',
-    banner_url_exists: bannerUrl ? 'yes' : 'no',
-    supabase_configured: supabase !== null,
+    latest_products: products.slice(0, 5),
+    latest_variants: variants.slice(0, 5),
+    supabase_error: supabaseError,
   });
 });
 
