@@ -450,11 +450,11 @@ export default function App() {
           {loginMode === 'tenant' ? (
             <form onSubmit={handleTenantLogin} className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Tenant identifier (Tenant ID)</label>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Tenant ID</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. rent_slug_322"
+                  placeholder="e.g. 92c1e5ca-8498-438f-b777-3dc1c3195c1b"
                   value={tenantIdInput}
                   onChange={(e) => setTenantIdInput(e.target.value)}
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 font-mono"

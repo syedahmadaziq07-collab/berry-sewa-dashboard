@@ -167,7 +167,7 @@ app.get('/api/auth/me', (req: Request, res: Response) => {
 });
 
 // POST /api/auth/tenant-login
-app.post('/api/auth/tenant-login', (req: Request, res: Response) => {
+app.post('/api/auth/tenant-login', async (req: Request, res: Response) => {
   const { tenant_id, password } = req.body;
 
   if (!tenant_id || !password) {
@@ -175,10 +175,75 @@ app.post('/api/auth/tenant-login', (req: Request, res: Response) => {
     return;
   }
 
-  const tenant = db.getTenant(tenant_id);
-  if (!tenant) {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  // Step 1: Try Supabase first (real UUID tenant lookup)
+  let tenantData: Record<string, any> | null = null;
+
+  if (supabase && uuidRegex.test(tenant_id)) {
+    const { data, error } = await supabase
+      .from('tenants')
+      .select('id,name,bot_username,owner_telegram_id,owner_username,status,rent_start,rent_end')
+      .eq('id', tenant_id)
+      .single();
+
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows
+      console.error('[TENANT] Supabase lookup error:', error);
+    }
+    if (data) {
+      tenantData = data;
+    }
+  }
+
+  // Step 2: If Supabase didn't find it, check local DB (backward compat for seed data)
+  if (!tenantData) {
+    const localTenant = db.getTenant(tenant_id);
+    if (localTenant) {
+      tenantData = {
+        id: localTenant.tenant_id,
+        name: localTenant.name,
+        bot_username: localTenant.bot_username,
+        owner_telegram_id: localTenant.owner_telegram_id,
+        owner_username: localTenant.owner_username,
+        status: localTenant.status,
+        rent_start: localTenant.rent_start,
+        rent_end: localTenant.rent_end,
+      };
+    }
+  }
+
+  if (!tenantData) {
     res.status(401).json({ error: 'Tenant not found.' });
     return;
+  }
+
+  const resolvedId = tenantData.id;
+  const resolvedName = tenantData.name;
+
+  // Ensure tenant exists in local DB (create if Supabase-only)
+  let tenant = db.getTenant(resolvedId);
+  if (!tenant) {
+    const now = new Date().toISOString();
+    tenant = db.createTenant({
+      tenant_id: resolvedId,
+      name: tenantData.name || '',
+      bot_username: tenantData.bot_username || '',
+      owner_telegram_id: String(tenantData.owner_telegram_id || ''),
+      owner_username: tenantData.owner_username || '',
+      monthly_price: 0,
+      status: tenantData.status || 'active',
+      rent_start: tenantData.rent_start || now,
+      rent_end: tenantData.rent_end || now,
+      dashboard_enabled: true,
+      dashboard_secret_hash: null,
+      dashboard_password_set_at: null,
+      dashboard_first_login_at: null,
+      dashboard_last_login_at: null,
+      dashboard_password_reset_required: false,
+      service_url: '',
+      notes: '',
+      created_at: now,
+    });
   }
 
   if (!tenant.dashboard_enabled) {
@@ -196,7 +261,7 @@ app.post('/api/auth/tenant-login', (req: Request, res: Response) => {
   if (tenant.status === 'expired' || daysLeft <= 0) {
     // Automatically set status to expired if days elapsed
     if (tenant.status !== 'expired') {
-      db.updateTenant(tenant_id, { status: 'expired' });
+      db.updateTenant(resolvedId, { status: 'expired' });
     }
     res.status(403).json({ error: 'Bot rental has expired. Please contact administration to renew.' });
     return;
@@ -206,7 +271,7 @@ app.post('/api/auth/tenant-login', (req: Request, res: Response) => {
   if (tenant.dashboard_secret_hash === null) {
     const hash = hashPassword(password);
     const now = new Date().toISOString();
-    db.updateTenant(tenant_id, {
+    db.updateTenant(resolvedId, {
       dashboard_secret_hash: hash,
       dashboard_password_set_at: now,
       dashboard_first_login_at: tenant.dashboard_first_login_at || now,
@@ -214,14 +279,14 @@ app.post('/api/auth/tenant-login', (req: Request, res: Response) => {
       dashboard_password_reset_required: false
     });
     
-    db.log(tenant_id, "FIRST_TIME_PASSWORD_SETUP", "Customer completed first-time login and created dashboard credentials");
+    db.log(resolvedId, "FIRST_TIME_PASSWORD_SETUP", "Customer completed first-time login and created dashboard credentials");
 
     // Success login
     const sessionId = 'sess_' + crypto.randomUUID();
-    sessions.set(sessionId, { role: 'tenant', tenant_id });
+    sessions.set(sessionId, { role: 'tenant', tenant_id: resolvedId });
     saveSessions();
     res.cookie('berry_session_id', sessionId, { httpOnly: true, path: '/' });
-    res.json({ status: 'success', role: 'tenant', tenant_id, name: tenant.name, message: 'Password set and logged in matches successfully.' });
+    res.json({ status: 'success', role: 'tenant', tenant_id: resolvedId, name: tenant.name, message: 'Password set and logged in matches successfully.' });
     return;
   }
 
@@ -229,19 +294,19 @@ app.post('/api/auth/tenant-login', (req: Request, res: Response) => {
   if (tenant.dashboard_password_reset_required) {
     const hash = hashPassword(password);
     const now = new Date().toISOString();
-    db.updateTenant(tenant_id, {
+    db.updateTenant(resolvedId, {
       dashboard_secret_hash: hash,
       dashboard_password_set_at: now,
       dashboard_last_login_at: now,
       dashboard_password_reset_required: false
     });
-    db.log(tenant_id, "PASSWORD_RESET_COMPLETED", "Owner set new dashboard password following reset instruction");
+    db.log(resolvedId, "PASSWORD_RESET_COMPLETED", "Owner set new dashboard password following reset instruction");
 
     const sessionId = 'sess_' + crypto.randomUUID();
-    sessions.set(sessionId, { role: 'tenant', tenant_id });
+    sessions.set(sessionId, { role: 'tenant', tenant_id: resolvedId });
     saveSessions();
     res.cookie('berry_session_id', sessionId, { httpOnly: true, path: '/' });
-    res.json({ status: 'success', role: 'tenant', tenant_id, name: tenant.name });
+    res.json({ status: 'success', role: 'tenant', tenant_id: resolvedId, name: tenant.name });
     return;
   }
 
@@ -253,14 +318,14 @@ app.post('/api/auth/tenant-login', (req: Request, res: Response) => {
 
   // Update last login
   const now = new Date().toISOString();
-  db.updateTenant(tenant_id, { dashboard_last_login_at: now });
-  db.log(tenant_id, "LOGIN_SUCCESS", "Dashboard user logged in successfully");
+  db.updateTenant(resolvedId, { dashboard_last_login_at: now });
+  db.log(resolvedId, "LOGIN_SUCCESS", "Dashboard user logged in successfully");
 
   const sessionId = 'sess_' + crypto.randomUUID();
-  sessions.set(sessionId, { role: 'tenant', tenant_id });
+  sessions.set(sessionId, { role: 'tenant', tenant_id: resolvedId });
   saveSessions();
   res.cookie('berry_session_id', sessionId, { httpOnly: true, path: '/' });
-  res.json({ status: 'success', role: 'tenant', tenant_id, name: tenant.name });
+  res.json({ status: 'success', role: 'tenant', tenant_id: resolvedId, name: tenant.name });
 });
 
 // POST /api/auth/master-login
