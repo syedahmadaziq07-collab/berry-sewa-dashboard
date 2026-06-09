@@ -1533,8 +1533,23 @@ async function startServer() {
     await setupViteDevServer(app);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+
+    // Serve static assets with long cache for hashed files (but not index.html)
+    app.use(express.static(distPath, {
+      maxAge: '1y',
+      immutable: true,
+      index: false,
+    }));
+
+    // SPA fallback — serve index.html for non-file routes with no-cache
     app.get('*', (req, res) => {
+      // If the request looks like a file (has extension) and wasn't served by static, return 404
+      const ext = path.extname(req.path).toLowerCase();
+      if (ext && ['.js', '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', '.woff', '.woff2', '.ttf', '.eot'].includes(ext)) {
+        res.status(404).end();
+        return;
+      }
+      res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
