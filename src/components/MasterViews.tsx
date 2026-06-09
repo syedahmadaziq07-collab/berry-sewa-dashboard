@@ -2,10 +2,15 @@ import React, { useState } from 'react';
 import { Tenant } from '../types';
 import { 
   Users, DollarSign, ShieldAlert, Sparkles, Plus, 
-  HelpCircle, Eye, RefreshCw, Calendar, FileText, CheckCircle2, Lock, Unlock, Key
+  HelpCircle, Eye, RefreshCw, Calendar, FileText, CheckCircle2, Lock, Unlock, Key,
+  Copy, AlertCircle
 } from 'lucide-react';
 import { TableSkeleton } from './Skeleton';
 import { EmptyState } from './EmptyState';
+
+function copyToClipboard(text: string) {
+  navigator.clipboard.writeText(text);
+}
 
 interface MasterViewsProps {
   overview: {
@@ -49,6 +54,7 @@ export function MasterViews({
   
   // Provision response config
   const [createdTenantResult, setCreatedTenantResult] = useState<Tenant | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   // General detail modal
   const [detailedTenant, setDetailedTenant] = useState<any | null>(null);
@@ -61,6 +67,7 @@ export function MasterViews({
     e.preventDefault();
     if (!storeName.trim() || !botUsername.trim() || !telegramId.trim()) return;
 
+    setCreateError(null);
     try {
       const res = await onCreateTenant({
         store_name: storeName,
@@ -80,8 +87,9 @@ export function MasterViews({
       setOwnerUsername('');
       setServiceUrl('');
       setNotes('');
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      const msg = err?.message || err?.error || String(err);
+      setCreateError(msg);
     }
   };
 
@@ -102,15 +110,14 @@ export function MasterViews({
 
   // Environment configuration template display
   const renderEnvTemplate = (tenant: Tenant) => {
-    return `BOT_TOKEN=YOUR_TELEGRAM_BOT_TOKEN_HERE
+    return `BOT_TOKEN=
 ADMIN_ID=${tenant.owner_telegram_id}
 TENANT_ID=${tenant.tenant_id}
 REQUIRED_CHANNEL=
 REQUIRED_CHANNEL_URL=
-SUPABASE_URL=https://your-supabase-project.supabase.co
-SUPABASE_KEY=YOUR_SUPABASE_ANON_KEY
-SUPABASE_SERVICE_KEY=YOUR_SUPABASE_SERVICE_ROLE_KEY
-DASHBOARD_ADMIN_SECRET=berry_master_secret_2026`;
+SUPABASE_URL=
+SUPABASE_KEY=
+SUPABASE_SERVICE_KEY=`;
   };
 
   if (loading) {
@@ -239,12 +246,22 @@ DASHBOARD_ADMIN_SECRET=berry_master_secret_2026`;
                   <th className="p-4 pr-6 text-right">Administrative Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+                  <tbody className="divide-y divide-gray-50">
                 {tenants.map(t => (
                   <tr key={t.tenant_id} className="hover:bg-gray-50/50 transition-all font-semibold">
                     <td className="p-4 pl-6">
                       <p className="font-bold text-gray-900">{t.name}</p>
                       <p className="text-[10px] text-gray-400 mt-0.5 font-mono">{t.bot_username}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5 font-mono flex items-center">
+                        UUID: {t.tenant_id}
+                        <button
+                          onClick={() => copyToClipboard(t.tenant_id)}
+                          className="ml-1 p-0.5 text-gray-400 hover:text-gray-700 cursor-pointer"
+                          title="Copy UUID"
+                        >
+                          <Copy className="w-3 h-3" />
+                        </button>
+                      </p>
                     </td>
                     <td className="p-4">
                       <p className="text-gray-900">ID: {t.owner_telegram_id}</p>
@@ -285,6 +302,16 @@ DASHBOARD_ADMIN_SECRET=berry_master_secret_2026`;
                   <div>
                     <h4 className="font-bold text-gray-900">{t.name}</h4>
                     <p className="text-[10px] text-gray-400 font-mono mt-0.5">{t.bot_username}</p>
+                    <p className="text-[10px] text-gray-400 font-mono mt-0.5 flex items-center">
+                      UUID: {t.tenant_id}
+                      <button
+                        onClick={() => copyToClipboard(t.tenant_id)}
+                        className="ml-1 p-0.5 text-gray-400 hover:text-gray-700 cursor-pointer"
+                        title="Copy UUID"
+                      >
+                        <Copy className="w-3 h-3" />
+                      </button>
+                    </p>
                   </div>
                   <span>{getStatusBadge(t.status)}</span>
                 </div>
@@ -315,7 +342,16 @@ DASHBOARD_ADMIN_SECRET=berry_master_secret_2026`;
               <div className="p-5 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center">
                 <div>
                   <h3 className="font-bold text-gray-900 text-base">Administrative Dashboard: {detailedTenant.name}</h3>
-                  <p className="text-[11px] text-gray-400 font-mono mt-0.5">Tenant unique: {detailedTenant.tenant_id}</p>
+                  <p className="text-[11px] text-gray-400 font-mono mt-0.5 flex items-center">
+                    Tenant UUID: {detailedTenant.tenant_id}
+                    <button
+                      onClick={() => copyToClipboard(detailedTenant.tenant_id)}
+                      className="ml-1 p-0.5 text-gray-400 hover:text-gray-700 cursor-pointer"
+                      title="Copy UUID"
+                    >
+                      <Copy className="w-3 h-3" />
+                    </button>
+                  </p>
                 </div>
                 <button 
                   onClick={() => setDetailedTenant(null)}
@@ -476,28 +512,50 @@ DASHBOARD_ADMIN_SECRET=berry_master_secret_2026`;
 
             <div className="text-xs font-semibold text-gray-700 grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="p-3.5 bg-gray-50 border border-gray-100 rounded-xl">
-                <span className="text-gray-400 block mb-0.5">TENANT IDENTIFIER ID</span>
-                <span className="font-mono text-gray-900 font-bold">{createdTenantResult.tenant_id}</span>
+                <span className="text-gray-400 block mb-0.5">TENANT_ID</span>
+                <span className="font-mono text-gray-900 font-bold break-all">{createdTenantResult.tenant_id}</span>
+                <button
+                  onClick={() => copyToClipboard(createdTenantResult.tenant_id)}
+                  className="ml-2 p-1 inline-flex items-center text-gray-400 hover:text-gray-700 cursor-pointer"
+                  title="Copy TENANT_ID"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
               </div>
               <div className="p-3.5 bg-gray-50 border border-gray-100 rounded-xl">
-                <span className="text-gray-400 block mb-0.5">Custom Bot Identifier</span>
+                <span className="text-gray-400 block mb-0.5">Store name</span>
+                <span className="font-mono text-gray-950">{createdTenantResult.name}</span>
+              </div>
+              <div className="p-3.5 bg-gray-50 border border-gray-100 rounded-xl">
+                <span className="text-gray-400 block mb-0.5">Bot username</span>
                 <span className="font-mono text-gray-950">{createdTenantResult.bot_username}</span>
               </div>
               <div className="p-3.5 bg-gray-50 border border-gray-100 rounded-xl">
-                <span className="text-gray-400 block mb-0.5">Telegram Administrative ID</span>
+                <span className="text-gray-400 block mb-0.5">Owner Telegram ID</span>
                 <span className="font-mono text-gray-950">{createdTenantResult.owner_telegram_id}</span>
               </div>
               <div className="p-3.5 bg-gray-50 border border-gray-100 rounded-xl">
-                <span className="text-gray-400 block mb-0.5">Monthly Rented rate</span>
-                <span className="font-mono text-gray-950 font-bold">${createdTenantResult.monthly_price}/mo</span>
+                <span className="text-gray-400 block mb-0.5">Rent start</span>
+                <span className="font-mono text-gray-950">{new Date(createdTenantResult.rent_start).toLocaleDateString()}</span>
+              </div>
+              <div className="p-3.5 bg-gray-50 border border-gray-100 rounded-xl">
+                <span className="text-gray-400 block mb-0.5">Rent end</span>
+                <span className="font-mono text-gray-950">{new Date(createdTenantResult.rent_end).toLocaleDateString()}</span>
               </div>
             </div>
 
             <div className="space-y-2">
               <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block font-mono">CLIENT DAEMON CONFIG ENVIRONMENT VARIABLES (.env)</label>
-              <pre className="p-4 bg-gray-950 text-emerald-400 rounded-2xl font-mono text-[11px] overflow-x-auto select-all leading-relaxed whitespace-pre shadow-lg border border-gray-900">
+              <pre className="p-4 bg-gray-950 text-emerald-400 rounded-2xl font-mono text-[11px] overflow-x-auto select-all leading-relaxed whitespace-pre shadow-lg border border-gray-900 relative">
                 {renderEnvTemplate(createdTenantResult)}
               </pre>
+              <button
+                onClick={() => copyToClipboard(renderEnvTemplate(createdTenantResult))}
+                className="mt-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-lg transition-all inline-flex items-center space-x-1.5 cursor-pointer"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Copy Env Template</span>
+              </button>
             </div>
 
             <div className="flex justify-end pt-2">
@@ -621,6 +679,22 @@ DASHBOARD_ADMIN_SECRET=berry_master_secret_2026`;
                 </button>
               </div>
             </form>
+          </div>
+        )}
+
+        {createError && (
+          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-start space-x-3">
+            <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-rose-800 font-bold text-sm">Failed to create tenant</p>
+              <p className="text-rose-700 text-xs mt-1 font-mono">{createError}</p>
+            </div>
+            <button
+              onClick={() => setCreateError(null)}
+              className="text-rose-400 hover:text-rose-600 cursor-pointer"
+            >
+              &times;
+            </button>
           </div>
         )}
       </div>

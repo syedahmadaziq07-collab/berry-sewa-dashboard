@@ -334,6 +334,9 @@ export default function App() {
     });
     const data = await res.json();
     loadMasterData();
+    if (!res.ok) {
+      throw new Error(data.error || `Request failed (${res.status})`);
+    }
     return data;
   };
 

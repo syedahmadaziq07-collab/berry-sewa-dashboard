@@ -993,7 +993,7 @@ app.get('/api/master/tenants', requireMasterAuth, (req: Request, res: Response) 
 });
 
 // POST /api/master/tenants
-app.post('/api/master/tenants', requireMasterAuth, (req: Request, res: Response) => {
+app.post('/api/master/tenants', requireMasterAuth, async (req: Request, res: Response) => {
   const { store_name, bot_username, owner_telegram_id, owner_username, monthly_price, duration_months, service_url, notes } = req.body;
 
   if (!store_name || !bot_username || !owner_telegram_id || !monthly_price || !duration_months) {
@@ -1001,26 +1001,57 @@ app.post('/api/master/tenants', requireMasterAuth, (req: Request, res: Response)
     return;
   }
 
-  // Generate tenant_id
-  const slug = store_name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/(^_+|_+$)/g, '');
-  const tenantId = slug + "_" + Math.floor(100 + Math.random() * 900);
-
   const rentStart = new Date();
   const rentEnd = new Date();
   rentEnd.setMonth(rentEnd.getMonth() + parseInt(duration_months));
 
+  const ownerTelegramId = String(owner_telegram_id);
+
+  // Generate tenant UUID — try Supabase first, fall back to local
+  let tenantUuid: string;
+
+  if (supabase) {
+    const supabasePayload: Record<string, any> = {
+      name: store_name,
+      bot_username,
+      owner_telegram_id: ownerTelegramId,
+      owner_username: owner_username || '',
+      status: 'active',
+      monthly_price: parseFloat(monthly_price) || 0,
+      rent_start: rentStart.toISOString(),
+      rent_end: rentEnd.toISOString(),
+      notes: notes || '',
+    };
+
+    const { data, error } = await supabase
+      .from('tenants')
+      .insert(supabasePayload)
+      .select('id,name,bot_username,owner_telegram_id,owner_username,status,rent_start,rent_end')
+      .single();
+
+    if (error) {
+      console.error('[TENANT] Supabase insert error:', error);
+      res.status(500).json({ error: `Supabase error: ${error.message}` });
+      return;
+    }
+
+    tenantUuid = data.id;
+  } else {
+    tenantUuid = crypto.randomUUID();
+  }
+
   const newTenant: Tenant = {
-    tenant_id: tenantId,
+    tenant_id: tenantUuid,
     name: store_name,
     bot_username,
-    owner_telegram_id: String(owner_telegram_id),
+    owner_telegram_id: ownerTelegramId,
     owner_username: owner_username || '',
     monthly_price: parseFloat(monthly_price) || 0,
     status: 'active',
     rent_start: rentStart.toISOString(),
     rent_end: rentEnd.toISOString(),
     dashboard_enabled: true,
-    dashboard_secret_hash: null, // Force first login password setting
+    dashboard_secret_hash: null,
     dashboard_password_set_at: null,
     dashboard_first_login_at: null,
     dashboard_last_login_at: null,
@@ -1031,7 +1062,7 @@ app.post('/api/master/tenants', requireMasterAuth, (req: Request, res: Response)
   };
 
   const created = db.createTenant(newTenant);
-  db.log(tenantId, 'TENANT_PROVISION', `Admin provisioned new tenant bot store: "${store_name}"`);
+  db.log(tenantUuid, 'TENANT_PROVISION', `Admin provisioned new tenant bot store: "${store_name}"`);
 
   res.status(201).json(created);
 });
