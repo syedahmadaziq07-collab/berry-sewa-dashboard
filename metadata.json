@@ -1,0 +1,6 @@
+{
+  "name": "Berry Store Rental Dashboard",
+  "description": "Central management dashboard for Telegram shop bot rental systems, supporting multiple tenants and master owner monitoring.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
