@@ -1,0 +1,14 @@
+{
+  "sess_88e5757c-9e55-4945-9b48-5e3d2f2fa764": {
+    "role": "tenant",
+    "tenant_id": "premium_shop"
+  },
+  "sess_4c568318-1efb-4d30-8d3f-67740afd331b": {
+    "role": "tenant",
+    "tenant_id": "premium_shop"
+  },
+  "sess_8c4e2fee-c4fc-49ce-a234-afa4abe59e2d": {
+    "role": "tenant",
+    "tenant_id": "premium_shop"
+  }
+}

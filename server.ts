@@ -395,7 +395,7 @@ app.get('/api/tenant/overview', requireTenantAuth, async (req: Request, res: Res
       supabaseGet(tenantId, 'users'),
       supabaseGet(tenantId, 'bot_settings'),
     ]);
-    if (p) products = p.map(mapRow);
+    if (p) products = p.map(mapProductRow);
     if (o) orders = o;
     if (u) users = u;
     if (s) settings = s;
@@ -511,23 +511,55 @@ app.get('/api/tenant/overview', requireTenantAuth, async (req: Request, res: Res
   });
 });
 
-// Helper: map Supabase row is_active back to active for frontend
-function mapRow(row: any): any {
+// Helper: map Supabase product row to frontend format
+function mapProductRow(row: any): any {
   if (!row) return row;
-  if ('is_active' in row) {
-    row = { ...row, active: row.is_active };
-    delete row.is_active;
+  const r: any = { ...row };
+  if ('is_active' in r) {
+    r.active = r.is_active;
+    delete r.is_active;
   }
-  return row;
+  return r;
 }
 
-// Helper: build update payload, renaming active -> is_active for Supabase
-function toSupabasePayload(body: any): any {
+// Helper: map Supabase variant row to frontend format (variant_name -> name)
+function mapVariantRow(row: any): any {
+  if (!row) return row;
+  const r: any = { ...row };
+  if ('variant_name' in r) {
+    r.name = r.variant_name;
+  }
+  // product_variants has no active/is_active column
+  delete r.active;
+  delete r.is_active;
+  return r;
+}
+
+// Helper: build product payload for Supabase, mapping frontend fields
+function productToSupabase(body: any): any {
   const p: any = { ...body };
+  // Remove fields not in products table
+  delete p.base_price;
+  delete p.basePrice;
+  // Map active -> is_active + status
   if ('active' in p) {
-    p.is_active = p.active;
+    p.is_active = !!p.active;
+    p.status = p.is_active ? 'active' : 'inactive';
     delete p.active;
   }
+  return p;
+}
+
+// Helper: build variant payload for Supabase, mapping frontend fields
+function variantToSupabase(body: any): any {
+  const p: any = { ...body };
+  if ('name' in p) {
+    p.variant_name = p.name;
+    delete p.name;
+  }
+  // product_variants has no active/is_active columns
+  delete p.active;
+  delete p.is_active;
   return p;
 }
 
@@ -547,32 +579,37 @@ app.get('/api/tenant/products', requireTenantAuth, async (req: Request, res: Res
     res.status(500).json({ error: `Supabase query failed: ${error.message}` });
     return;
   }
-  res.json((data || []).map(mapRow));
+  res.json((data || []).map(mapProductRow));
 });
 
 // POST /api/tenant/products
 app.post('/api/tenant/products', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
-  const { name, price, duration, description, auto_delivery, active } = req.body;
+  const { name, price, duration, description, auto_delivery, active, stock, account_type } = req.body;
 
   if (!name || price === undefined) {
     res.status(400).json({ error: 'Name and price are required fields' });
     return;
   }
 
+  const activeFlag = active !== undefined ? !!active : true;
   const productPayload = {
     tenant_id: tenantId,
     name,
-    price: parseFloat(price) || 0,
-    duration: duration || '1 month',
     description: description || '',
-    stock: 0,
-    auto_delivery: !!auto_delivery,
-    is_active: active !== undefined ? !!active : true,
+    price: Number(price) || 0,
+    stock: Number(stock || 0),
+    duration: duration || '',
+    is_active: activeFlag,
+    account_type: account_type || '',
+    auto_delivery: auto_delivery !== undefined ? !!auto_delivery : true,
+    variants: [],
+    status: activeFlag ? 'active' : 'inactive',
   };
 
   console.log('[PRODUCT_CREATE] session tenant_id:', tenantId);
-  console.log('[PRODUCT_CREATE] payload:', JSON.stringify(productPayload));
+  console.log('[PRODUCT_CREATE] request body:', JSON.stringify(req.body));
+  console.log('[PRODUCT_CREATE] final payload:', JSON.stringify(productPayload));
 
   if (!supabase) {
     const product = db.createProduct({ ...productPayload, active: productPayload.is_active });
@@ -589,14 +626,15 @@ app.post('/api/tenant/products', requireTenantAuth, async (req: Request, res: Re
     .single();
 
   if (error) {
-    console.error('[PRODUCT_CREATE] Supabase error:', error.message);
+    console.error('[PRODUCT_CREATE] Supabase error:', JSON.stringify(error));
     res.status(500).json({ error: `Supabase insert failed: ${error.message}` });
     return;
   }
 
   console.log('[PRODUCT_CREATE] Supabase success, product id:', data.id);
+  console.log('[PRODUCT_CREATE] Supabase returned data:', JSON.stringify(data));
   db.log(tenantId, 'PRODUCT_CREATE', `Created product: "${name}" [ID: ${data.id}]`);
-  res.status(201).json(mapRow(data));
+  res.status(201).json(mapProductRow(data));
 });
 
 // PATCH /api/tenant/products/:id
@@ -618,7 +656,7 @@ app.patch('/api/tenant/products/:id', requireTenantAuth, async (req: Request, re
 
   const { data, error } = await supabase
     .from('products')
-    .update(toSupabasePayload(req.body))
+    .update(productToSupabase(req.body))
     .eq('id', productId)
     .eq('tenant_id', tenantId)
     .select()
@@ -636,7 +674,7 @@ app.patch('/api/tenant/products/:id', requireTenantAuth, async (req: Request, re
   }
 
   db.log(tenantId, 'PRODUCT_UPDATE', `Updated product: "${data.name}"`);
-  res.json(mapRow(data));
+  res.json(mapProductRow(data));
 });
 
 // DELETE /api/tenant/products/:id
@@ -688,13 +726,13 @@ app.get('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Res
     res.status(500).json({ error: `Supabase query failed: ${error.message}` });
     return;
   }
-  res.json((data || []).map(mapRow));
+  res.json((data || []).map(mapVariantRow));
 });
 
 // POST /api/tenant/variants
 app.post('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
-  const { product_id, name, price, stock, active } = req.body;
+  const { product_id, name, price, stock, description } = req.body;
 
   if (!product_id || !name || price === undefined) {
     res.status(400).json({ error: 'Product ID, variation name, and price are required' });
@@ -703,16 +741,17 @@ app.post('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Re
 
   const variantPayload = {
     tenant_id: tenantId,
-    product_id,
-    name,
-    price: parseFloat(price) || 0,
-    stock: parseInt(stock) || 0,
-    is_active: active !== undefined ? !!active : true,
+    product_id: Number(product_id),
+    variant_name: name,
+    price: Number(price) || 0,
+    stock: Number(stock || 0),
+    description: description || '',
   };
 
   console.log('[VARIANT_CREATE] session tenant_id:', tenantId);
+  console.log('[VARIANT_CREATE] request body:', JSON.stringify(req.body));
   console.log('[VARIANT_CREATE] product_id:', product_id);
-  console.log('[VARIANT_CREATE] payload:', JSON.stringify(variantPayload));
+  console.log('[VARIANT_CREATE] final payload:', JSON.stringify(variantPayload));
 
   if (!supabase) {
     const product = db.getProductById(product_id, tenantId);
@@ -720,7 +759,14 @@ app.post('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Re
       res.status(404).json({ error: 'Matching product not found' });
       return;
     }
-    const vari = db.createVariant({ ...variantPayload, active: variantPayload.is_active });
+    const vari = db.createVariant({
+      tenant_id: tenantId,
+      product_id,
+      name: variantPayload.variant_name,
+      price: variantPayload.price,
+      stock: variantPayload.stock,
+      active: true,
+    });
     console.log('[VARIANT_CREATE] Dev mode — saved to local DB, id:', vari.id);
     db.log(tenantId, 'VARIANT_CREATE', `Created variant "${name}" for product "${product.name}"`);
     res.json(vari);
@@ -731,7 +777,7 @@ app.post('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Re
   const { data: product } = await supabase
     .from('products')
     .select('id, name')
-    .eq('id', product_id)
+    .eq('id', Number(product_id))
     .eq('tenant_id', tenantId)
     .single();
 
@@ -747,14 +793,15 @@ app.post('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Re
     .single();
 
   if (error) {
-    console.error('[VARIANT_CREATE] Supabase error:', error.message);
+    console.error('[VARIANT_CREATE] Supabase error:', JSON.stringify(error));
     res.status(500).json({ error: `Supabase insert failed: ${error.message}` });
     return;
   }
 
   console.log('[VARIANT_CREATE] Supabase success, variant id:', data.id);
-  db.log(tenantId, 'VARIANT_CREATE', `Created variant "${name}" for product "${product.name}"`);
-  res.json(mapRow(data));
+  console.log('[VARIANT_CREATE] Supabase returned data:', JSON.stringify(data));
+  db.log(tenantId, 'VARIANT_CREATE', `Created variant "${variantPayload.variant_name}" for product "${product.name}"`);
+  res.json(mapVariantRow(data));
 });
 
 // PATCH /api/tenant/variants/:id
@@ -777,7 +824,7 @@ app.patch('/api/tenant/variants/:id', requireTenantAuth, async (req: Request, re
 
   const { data, error } = await supabase
     .from('product_variants')
-    .update(toSupabasePayload(req.body))
+    .update(variantToSupabase(req.body))
     .eq('id', variantId)
     .eq('tenant_id', tenantId)
     .select()
@@ -794,8 +841,8 @@ app.patch('/api/tenant/variants/:id', requireTenantAuth, async (req: Request, re
     return;
   }
 
-  db.log(tenantId, 'VARIANT_UPDATE', `Updated variant: "${data.name || variantId}"`);
-  res.json(mapRow(data));
+  db.log(tenantId, 'VARIANT_UPDATE', `Updated variant ID: ${variantId}`);
+  res.json(mapVariantRow(data));
 });
 
 // GET /api/tenant/orders
@@ -961,8 +1008,8 @@ app.get('/api/tenant/stocks', requireTenantAuth, async (req: Request, res: Respo
       supabaseGet(tenantId, 'product_variants'),
       supabaseGet(tenantId, 'credentials'),
     ]);
-    if (p) products = p.map(mapRow);
-    if (v) variants = v.map(mapRow);
+    if (p) products = p.map(mapProductRow);
+    if (v) variants = v.map(mapVariantRow);
     if (c) credentials = c;
   }
 
@@ -1236,7 +1283,7 @@ app.get('/api/tenant/health', requireTenantAuth, async (req: Request, res: Respo
       supabaseGet(tenantId, 'credentials'),
       supabaseGet(tenantId, 'bot_settings'),
     ]);
-    if (p) products = p.map(mapRow);
+    if (p) products = p.map(mapProductRow);
     if (c) credentials = c;
     if (s) settings = s;
   }
@@ -1275,6 +1322,78 @@ app.get('/api/tenant/health', requireTenantAuth, async (req: Request, res: Respo
       has_credentials: hasCredentials,
       rental_active: rentalActive
     }
+  });
+});
+
+// GET /api/debug/tenant-data
+app.get('/api/debug/tenant-data', requireTenantAuth, async (req: Request, res: Response) => {
+  const tenantId = (req as any).tenant_id;
+  let products: any[] = [];
+  let variants: any[] = [];
+  let source = 'memory';
+  let error: string | null = null;
+
+  if (supabase) {
+    source = 'supabase';
+    try {
+      const { data: p, error: pe } = await supabase
+        .from('products')
+        .select('*')
+        .eq('tenant_id', tenantId);
+      if (pe) {
+        error = `products query error: ${pe.message}`;
+      } else {
+        products = (p || []).map(mapProductRow);
+      }
+    } catch (e: any) {
+      error = `products query exception: ${e.message}`;
+    }
+
+    try {
+      const { data: v, error: ve } = await supabase
+        .from('product_variants')
+        .select('*')
+        .eq('tenant_id', tenantId);
+      if (ve && !error) {
+        error = `product_variants query error: ${ve.message}`;
+      } else {
+        variants = (v || []).map(mapVariantRow);
+      }
+    } catch (e: any) {
+      if (!error) error = `product_variants query exception: ${e.message}`;
+    }
+  }
+
+  if (products.length === 0 && variants.length === 0 && !supabase) {
+    products = db.getProducts(tenantId);
+    variants = db.getVariants(tenantId);
+  }
+
+  res.json({
+    session_tenant_id: tenantId,
+    source,
+    products_count: products.length,
+    product_variants_count: variants.length,
+    latest_5_products: products.slice(-5).map((p: any) => ({
+      id: p.id,
+      tenant_id: p.tenant_id,
+      name: p.name,
+      price: p.price,
+      duration: p.duration,
+      is_active: p.is_active,
+      active: p.active,
+      status: p.status,
+    })),
+    latest_5_variants: variants.slice(-5).map((v: any) => ({
+      id: v.id,
+      product_id: v.product_id,
+      tenant_id: v.tenant_id,
+      name: v.name,
+      price: v.price,
+      stock: v.stock,
+    })),
+    supabase_error: error,
+    supabase_configured: !!supabase,
   });
 });
 
