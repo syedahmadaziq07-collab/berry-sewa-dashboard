@@ -538,9 +538,27 @@ function mapVariantRow(row: any): any {
 // Helper: build product payload for Supabase, mapping frontend fields
 function productToSupabase(body: any): any {
   const p: any = { ...body };
-  // Remove fields not in products table
-  delete p.base_price;
-  delete p.basePrice;
+  // Map camelCase fields from frontend to snake_case
+  if ('basePrice' in p) {
+    p.price = Number(p.basePrice);
+    delete p.basePrice;
+  }
+  if ('base_price' in p) {
+    p.price = Number(p.base_price);
+    delete p.base_price;
+  }
+  if ('accountType' in p) {
+    p.account_type = p.accountType;
+    delete p.accountType;
+  }
+  if ('autoDelivery' in p && !('auto_delivery' in p)) {
+    p.auto_delivery = !!p.autoDelivery;
+    delete p.autoDelivery;
+  }
+  if ('variantName' in p) {
+    p.variant_name = p.variantName;
+    delete p.variantName;
+  }
   // Map active -> is_active + status
   if ('active' in p) {
     p.is_active = !!p.active;
@@ -570,7 +588,7 @@ app.get('/api/tenant/products', requireTenantAuth, async (req: Request, res: Res
     res.json(db.getProducts(tenantId));
     return;
   }
-  const { data, error } = await supabase
+  const { data: products, error } = await supabase
     .from('products')
     .select('*')
     .eq('tenant_id', tenantId);
@@ -579,76 +597,146 @@ app.get('/api/tenant/products', requireTenantAuth, async (req: Request, res: Res
     res.status(500).json({ error: `Supabase query failed: ${error.message}` });
     return;
   }
-  res.json((data || []).map(mapProductRow));
+  // Also fetch variants for this tenant to attach to products
+  const { data: variants } = await supabase
+    .from('product_variants')
+    .select('*')
+    .eq('tenant_id', tenantId);
+
+  const mapped = (products || []).map(mapProductRow);
+  const mappedVars = (variants || []).map(mapVariantRow);
+
+  // Attach linked variants to each product
+  const result = mapped.map((p: any) => ({
+    ...p,
+    variants: mappedVars.filter((v: any) => v.product_id === p.id),
+  }));
+
+  res.json(result);
 });
 
 // POST /api/tenant/products
 app.post('/api/tenant/products', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
-  const { name, price, duration, description, auto_delivery, active, stock, account_type } = req.body;
+  const body = req.body;
+  const { name, price, duration, description } = body;
 
   if (!name || price === undefined) {
     res.status(400).json({ error: 'Name and price are required fields' });
     return;
   }
 
-  const activeFlag = active !== undefined ? !!active : true;
+  // Build product payload matching exact products schema
+  const activeFlag = body.active !== undefined ? !!body.active : true;
+  const productPrice = Number(body.price || body.basePrice || body.base_price || 0);
   const productPayload = {
     tenant_id: tenantId,
     name,
-    description: description || '',
-    price: Number(price) || 0,
-    stock: Number(stock || 0),
+    description: description || body.description || '',
+    price: productPrice,
+    stock: Number(body.stock || 0),
     duration: duration || '',
     is_active: activeFlag,
-    account_type: account_type || '',
-    auto_delivery: auto_delivery !== undefined ? !!auto_delivery : true,
+    account_type: body.account_type || body.accountType || '',
+    auto_delivery: body.auto_delivery !== undefined ? !!body.auto_delivery : body.autoDelivery !== undefined ? !!body.autoDelivery : true,
     variants: [],
     status: activeFlag ? 'active' : 'inactive',
   };
 
+  console.log('[PRODUCT_CREATE] === PRODUCT CREATE START ===');
   console.log('[PRODUCT_CREATE] session tenant_id:', tenantId);
-  console.log('[PRODUCT_CREATE] request body:', JSON.stringify(req.body));
-  console.log('[PRODUCT_CREATE] final payload:', JSON.stringify(productPayload));
+  console.log('[PRODUCT_CREATE] request body:', JSON.stringify(body));
+  console.log('[PRODUCT_CREATE] final product payload:', JSON.stringify(productPayload));
 
+  // Dev mode fallback
   if (!supabase) {
     const product = db.createProduct({ ...productPayload, active: productPayload.is_active });
-    console.log('[PRODUCT_CREATE] Dev mode — saved to local DB, id:', product.id);
-    db.log(tenantId, 'PRODUCT_CREATE', `Created product: "${name}" [ID: ${product.id}]`);
-    res.status(201).json(product);
+    console.log('[PRODUCT_CREATE] Dev mode — saved product to local DB, id:', product.id);
+    // Dev mode: also create default variant
+    const defaultVariant = db.createVariant({
+      tenant_id: tenantId,
+      product_id: product.id,
+      name: duration || name,
+      price: productPrice,
+      stock: Number(body.stock || 0),
+      active: true,
+    });
+    console.log('[PRODUCT_CREATE] Dev mode — saved default variant, id:', defaultVariant.id);
+    db.log(tenantId, 'PRODUCT_CREATE', `Created product: "${name}" [ID: ${product.id}] with variant`);
+    res.status(201).json({ ...product, variants: [defaultVariant] });
     return;
   }
 
-  const { data, error } = await supabase
+  // --- Production: Insert product into Supabase ---
+  const { data: createdProduct, error: productError } = await supabase
     .from('products')
     .insert(productPayload)
     .select()
     .single();
 
-  if (error) {
-    console.error('[PRODUCT_CREATE] Supabase error:', JSON.stringify(error));
-    res.status(500).json({ error: `Supabase insert failed: ${error.message}` });
+  if (productError) {
+    console.error('[PRODUCT_CREATE] Supabase product insert error:', JSON.stringify(productError));
+    res.status(500).json({
+      error: `Supabase product insert failed: ${productError.message}`,
+      details: productError,
+    });
     return;
   }
 
-  console.log('[PRODUCT_CREATE] Supabase success, product id:', data.id);
-  console.log('[PRODUCT_CREATE] Supabase returned data:', JSON.stringify(data));
-  db.log(tenantId, 'PRODUCT_CREATE', `Created product: "${name}" [ID: ${data.id}]`);
-  res.status(201).json(mapProductRow(data));
+  console.log('[PRODUCT_CREATE] Supabase product insert success, id:', createdProduct.id);
+  console.log('[PRODUCT_CREATE] Supabase product returned data:', JSON.stringify(createdProduct));
+
+  // --- Auto-create a default variant row for the Telegram bot ---
+  const productIdNum = Number(createdProduct.id);
+  const variantPayload = {
+    tenant_id: tenantId,
+    product_id: productIdNum,
+    variant_name: duration || body.variant_name || body.variantName || name,
+    stock: Number(body.stock || 0),
+    price: productPrice,
+    description: description || '',
+  };
+
+  console.log('[PRODUCT_CREATE] Creating default variant payload:', JSON.stringify(variantPayload));
+
+  const { data: createdVariant, error: variantError } = await supabase
+    .from('product_variants')
+    .insert(variantPayload)
+    .select()
+    .single();
+
+  if (variantError) {
+    console.error('[PRODUCT_CREATE] Supabase variant insert error:', JSON.stringify(variantError));
+    // Log variant error but don't fail the request — product was already created
+    console.log('[PRODUCT_CREATE] Product created but variant insert failed — manual variant creation needed');
+  } else {
+    console.log('[PRODUCT_CREATE] Supabase variant insert success, id:', createdVariant.id);
+    console.log('[PRODUCT_CREATE] Supabase variant returned data:', JSON.stringify(createdVariant));
+  }
+
+  console.log('[PRODUCT_CREATE] === PRODUCT CREATE END ===');
+
+  db.log(tenantId, 'PRODUCT_CREATE', `Created product: "${name}" [ID: ${createdProduct.id}]`);
+
+  const mappedProduct = mapProductRow(createdProduct);
+  if (createdVariant) {
+    mappedProduct.variants = [mapVariantRow(createdVariant)];
+  }
+  res.status(201).json(mappedProduct);
 });
 
 // PATCH /api/tenant/products/:id
 app.patch('/api/tenant/products/:id', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
-  const productId = req.params.id;
+  const productId = Number(req.params.id);
 
   if (!supabase) {
-    const product = db.getProductById(productId, tenantId);
+    const product = db.getProductById(String(productId), tenantId);
     if (!product) {
       res.status(404).json({ error: 'Product not found' });
       return;
     }
-    const updated = db.updateProduct(productId, tenantId, req.body);
+    const updated = db.updateProduct(String(productId), tenantId, req.body);
     db.log(tenantId, 'PRODUCT_UPDATE', `Updated product parameters: "${updated?.name}"`);
     res.json(updated);
     return;
@@ -680,15 +768,15 @@ app.patch('/api/tenant/products/:id', requireTenantAuth, async (req: Request, re
 // DELETE /api/tenant/products/:id
 app.delete('/api/tenant/products/:id', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
-  const productId = req.params.id;
+  const productId = Number(req.params.id);
 
   if (!supabase) {
-    const product = db.getProductById(productId, tenantId);
+    const product = db.getProductById(String(productId), tenantId);
     if (!product) {
       res.status(404).json({ error: 'Product not found' });
       return;
     }
-    db.deleteProduct(productId, tenantId);
+    db.deleteProduct(String(productId), tenantId);
     db.log(tenantId, 'PRODUCT_DELETE', `Deleted product: "${product.name}" and cleared associated listings`);
     res.json({ message: 'Product deleted' });
     return;
@@ -807,16 +895,16 @@ app.post('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Re
 // PATCH /api/tenant/variants/:id
 app.patch('/api/tenant/variants/:id', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
-  const variantId = req.params.id;
+  const variantId = Number(req.params.id);
 
   if (!supabase) {
     const lists = db.getVariants(tenantId);
-    const exists = lists.find((v: any) => v.id === variantId);
+    const exists = lists.find((v: any) => v.id === String(variantId));
     if (!exists) {
       res.status(404).json({ error: 'Variant not found' });
       return;
     }
-    const updated = db.updateVariant(variantId, tenantId, req.body);
+    const updated = db.updateVariant(String(variantId), tenantId, req.body);
     db.log(tenantId, 'VARIANT_UPDATE', `Updated variant parameters: "${updated?.name}"`);
     res.json(updated);
     return;
