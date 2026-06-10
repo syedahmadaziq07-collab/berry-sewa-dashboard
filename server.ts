@@ -1481,7 +1481,7 @@ app.get('/api/tenant/settings', requireTenantAuth, async (req: Request, res: Res
 });
 
 // PATCH /api/tenant/settings/:key
-app.patch('/api/tenant/settings/:key', requireTenantAuth, (req: Request, res: Response) => {
+app.patch('/api/tenant/settings/:key', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
   const key = req.params.key;
   const { value } = req.body;
@@ -1491,8 +1491,30 @@ app.patch('/api/tenant/settings/:key', requireTenantAuth, (req: Request, res: Re
     return;
   }
 
+  // Update in Supabase if available
+  if (supabase) {
+    const { data: updateData, error: updateError } = await supabase
+      .from('bot_settings')
+      .update({ value })
+      .eq('tenant_id', tenantId)
+      .eq('key', key)
+      .select();
+
+    if (updateError) {
+      console.error(`[SUPABASE] bot_settings update error for ${key}:`, updateError.message);
+    } else if (!updateData || updateData.length === 0) {
+      // No existing row, insert
+      const { error: insertError } = await supabase
+        .from('bot_settings')
+        .insert({ tenant_id: tenantId, key, value });
+      if (insertError) {
+        console.error(`[SUPABASE] bot_settings insert error for ${key}:`, insertError.message);
+      }
+    }
+  }
+
   const setting = db.updateSetting(tenantId, key, value);
-  db.log(tenantId, 'SETTING_UPDATE', `Modified configuration key: "${key}" to list values`);
+  db.log(tenantId, 'SETTING_UPDATE', `Modified configuration key: "${key}"`);
   res.json(setting);
 });
 
@@ -1640,6 +1662,127 @@ app.delete('/api/tenant/media/banner', requireTenantAuth, async (req: Request, r
   } catch (deleteError: any) {
     res.status(500).json({ error: deleteError.message || 'Error deleting file from storage' });
   }
+});
+
+// POST /api/tenant/assets/upload - Unified asset upload for payment QR and banner
+app.post('/api/tenant/assets/upload', requireTenantAuth, (req: Request, res: Response) => {
+  upload.single('file')(req, res, async (err) => {
+    if (err) {
+      res.status(400).json({ ok: false, error: err.message || 'File upload limit exceeded or invalid file type' });
+      return;
+    }
+    const tenantId = (req as any).tenant_id;
+    const file = req.file;
+    const assetType = req.body.assetType;
+
+    if (!file) {
+      res.status(400).json({ ok: false, error: 'No file uploaded' });
+      return;
+    }
+    if (!assetType || !['payment_qr', 'banner'].includes(assetType)) {
+      res.status(400).json({ ok: false, error: 'Invalid assetType. Must be "payment_qr" or "banner"' });
+      return;
+    }
+
+    const isQR = assetType === 'payment_qr';
+    const prefix = isQR ? 'payment-qr' : 'banner';
+    const settingKey = isQR ? 'payment_qr_url' : 'banner_url';
+    const fileIdKey = isQR ? 'payment_qr_file_id' : 'banner_file_id';
+
+    try {
+      let finalUrl = '';
+      console.log(`[ASSET_UPLOAD] tenant_id=${tenantId} assetType=${assetType} file=${file.originalname} type=${file.mimetype} size=${file.size}`);
+
+      if (supabase) {
+        const ext = path.extname(file.originalname).substring(1) || 'png';
+        const filePath = `${tenantId}/${prefix}-${Date.now()}.${ext}`;
+        console.log(`[ASSET_UPLOAD] storage path=${filePath}`);
+
+        const { error: uploadError } = await supabase.storage
+          .from('tenant-assets')
+          .upload(filePath, file.buffer, {
+            contentType: file.mimetype,
+            upsert: true
+          });
+
+        if (uploadError) {
+          console.error(`[ASSET_UPLOAD] storage upload error:`, uploadError.message);
+          if (uploadError.message?.includes('bucket') || uploadError.message?.includes('not found') || uploadError.message?.includes('does not exist')) {
+            res.status(500).json({ ok: false, error: 'Supabase storage bucket tenant-assets does not exist' });
+            return;
+          }
+          res.status(500).json({ ok: false, error: `Storage upload error: ${uploadError.message}` });
+          return;
+        }
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('tenant-assets')
+          .getPublicUrl(filePath);
+
+        if (!publicUrl) {
+          res.status(500).json({ ok: false, error: 'Failed to get public URL for uploaded file' });
+          return;
+        }
+
+        finalUrl = publicUrl;
+        console.log(`[ASSET_UPLOAD] public URL=${finalUrl}`);
+
+        // Update bot_settings in Supabase: set URL value
+        const { data: updateUrlData, error: updateUrlError } = await supabase
+          .from('bot_settings')
+          .update({ value: finalUrl })
+          .eq('tenant_id', tenantId)
+          .eq('key', settingKey)
+          .select();
+
+        if (updateUrlError) {
+          console.error(`[ASSET_UPLOAD] bot_settings update error for ${settingKey}:`, updateUrlError.message);
+        } else if (!updateUrlData || updateUrlData.length === 0) {
+          // No row existed, insert it
+          const { error: insertUrlError } = await supabase
+            .from('bot_settings')
+            .insert({ tenant_id: tenantId, key: settingKey, value: finalUrl, description: (isQR ? 'Public URL of store payment QR image' : 'Public URL of shop welcome banner image') });
+          if (insertUrlError) {
+            console.error(`[ASSET_UPLOAD] bot_settings insert error for ${settingKey}:`, insertUrlError.message);
+          }
+        }
+
+        // Clear file_id in Supabase
+        const { data: clearFileData, error: clearFileError } = await supabase
+          .from('bot_settings')
+          .update({ value: '' })
+          .eq('tenant_id', tenantId)
+          .eq('key', fileIdKey)
+          .select();
+
+        if (clearFileError) {
+          console.error(`[ASSET_UPLOAD] bot_settings update error for ${fileIdKey}:`, clearFileError.message);
+        } else if (!clearFileData || clearFileData.length === 0) {
+          const { error: insertFileError } = await supabase
+            .from('bot_settings')
+            .insert({ tenant_id: tenantId, key: fileIdKey, value: '', description: (isQR ? 'Telegram File ID for payment QR code' : 'Telegram File ID for shop welcome banner') });
+          if (insertFileError) {
+            console.error(`[ASSET_UPLOAD] bot_settings insert error for ${fileIdKey}:`, insertFileError.message);
+          }
+        }
+
+        console.log(`[ASSET_UPLOAD] bot_settings update result: ${settingKey}=${finalUrl}, ${fileIdKey}=""`);
+      } else {
+        finalUrl = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
+      }
+
+      // Always update local FileDatabase as fallback
+      db.updateSetting(tenantId, settingKey, finalUrl);
+      db.updateSetting(tenantId, fileIdKey, '');
+      db.log(tenantId, 'MEDIA_UPLOAD', `Uploaded new ${isQR ? 'Payment QR' : 'Banner'} image`);
+
+      console.log(`[ASSET_UPLOAD] complete for tenant_id=${tenantId} key=${settingKey}`);
+      res.json({ ok: true, key: settingKey, url: finalUrl });
+    } catch (uploadError: any) {
+      console.error(`[ASSET_UPLOAD] unexpected error:`, uploadError.message || uploadError);
+      res.status(500).json({ ok: false, error: uploadError.message || 'Error uploading file' });
+    }
+  });
 });
 
 // GET /api/tenant/rental

@@ -80,19 +80,19 @@ export function TenantSettings({ settings, loading, onUpdateSetting, onRefresh }
       return;
     }
     setErrorQR(null);
-    setErrorQR(null);
     setUploadingQR(true);
 
     const formData = new FormData();
-    formData.append('image', file);
+    formData.append('file', file);
+    formData.append('assetType', 'payment_qr');
 
     try {
-      const res = await fetch('/api/tenant/media/payment-qr', {
+      const res = await fetch('/api/tenant/assets/upload', {
         method: 'POST',
         body: formData
       });
       const data = await res.json();
-      if (!res.ok) {
+      if (!res.ok || !data.ok) {
         throw new Error(data.error || 'Failed to upload QR image');
       }
       setSuccessQR('Payment QR code updated!');
@@ -112,19 +112,19 @@ export function TenantSettings({ settings, loading, onUpdateSetting, onRefresh }
       return;
     }
     setErrorBanner(null);
-    setErrorBanner(null);
     setUploadingBanner(true);
 
     const formData = new FormData();
-    formData.append('image', file);
+    formData.append('file', file);
+    formData.append('assetType', 'banner');
 
     try {
-      const res = await fetch('/api/tenant/media/banner', {
+      const res = await fetch('/api/tenant/assets/upload', {
         method: 'POST',
         body: formData
       });
       const data = await res.json();
-      if (!res.ok) {
+      if (!res.ok || !data.ok) {
         throw new Error(data.error || 'Failed to upload banner image');
       }
       setSuccessBanner('Shop banner updated!');
