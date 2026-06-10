@@ -538,6 +538,9 @@ function mapVariantRow(row: any): any {
 // Helper: build product payload for Supabase, mapping frontend fields
 function productToSupabase(body: any): any {
   const p: any = { ...body };
+  // Stripping id/created_at — let Supabase handle these
+  delete p.id;
+  delete p.created_at;
   // Map camelCase fields from frontend to snake_case
   if ('basePrice' in p) {
     p.price = Number(p.basePrice);
@@ -571,6 +574,9 @@ function productToSupabase(body: any): any {
 // Helper: build variant payload for Supabase, mapping frontend fields
 function variantToSupabase(body: any): any {
   const p: any = { ...body };
+  // Stripping id/created_at — let Supabase handle these
+  delete p.id;
+  delete p.created_at;
   if ('name' in p) {
     p.variant_name = p.name;
     delete p.name;
@@ -619,6 +625,11 @@ app.get('/api/tenant/products', requireTenantAuth, async (req: Request, res: Res
 app.post('/api/tenant/products', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
   const body = req.body;
+
+  // Safety: strip fields Supabase should auto-generate
+  delete body.id;
+  delete body.created_at;
+
   const { name, price, duration, description } = body;
 
   if (!name || price === undefined) {
@@ -668,6 +679,13 @@ app.post('/api/tenant/products', requireTenantAuth, async (req: Request, res: Re
   }
 
   // --- Production: Insert product into Supabase ---
+  // Final safety: verify no id field leaked into payload
+  if ('id' in productPayload) {
+    console.error('[PRODUCT_CREATE] CRITICAL: id found in productPayload! Deleting...');
+    delete (productPayload as any).id;
+  }
+  console.log('[PRODUCT_CREATE] Final insert payload (no id):', JSON.stringify(productPayload));
+
   const { data: createdProduct, error: productError } = await supabase
     .from('products')
     .insert(productPayload)
@@ -698,6 +716,10 @@ app.post('/api/tenant/products', requireTenantAuth, async (req: Request, res: Re
   };
 
   console.log('[PRODUCT_CREATE] Creating default variant payload:', JSON.stringify(variantPayload));
+  if ('id' in variantPayload) {
+    console.error('[PRODUCT_CREATE] CRITICAL: id found in variantPayload! Deleting...');
+    delete (variantPayload as any).id;
+  }
 
   const { data: createdVariant, error: variantError } = await supabase
     .from('product_variants')
