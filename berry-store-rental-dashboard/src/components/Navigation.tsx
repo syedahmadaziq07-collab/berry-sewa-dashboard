@@ -135,6 +135,7 @@ export function Navigation({ role, activeTab, setActiveTab, onLogout, tenantName
             <LogOut className="w-5 h-5" />
             <span>Sign Out</span>
           </button>
+          <p className="text-[9px] text-gray-300 text-center mt-2 font-mono select-none">UI build: manage-stock-v2</p>
         </div>
       </aside>
 
@@ -198,6 +199,7 @@ export function Navigation({ role, activeTab, setActiveTab, onLogout, tenantName
               <LogOut className="w-5 h-5" />
               <span>Sign Out</span>
             </button>
+            <p className="text-[9px] text-gray-300 text-center mt-2 font-mono select-none">UI build: manage-stock-v2</p>
           </div>
         </div>
       </div>

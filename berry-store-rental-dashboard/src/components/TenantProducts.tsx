@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Product, ProductVariant } from '../types';
-import { Plus, Edit2, Trash2, Layers, Check, X, ShieldAlert } from 'lucide-react';
+import { Plus, Edit2, Trash2, Layers, X, ShieldAlert, Power, PowerOff, Package, Save } from 'lucide-react';
 import { TableSkeleton } from './Skeleton';
 import { EmptyState } from './EmptyState';
 
@@ -8,17 +8,21 @@ interface TenantProductsProps {
   products: Product[];
   variants: ProductVariant[];
   loading: boolean;
-  onCreateProduct: (product: Omit<Product, 'id' | 'tenant_id' | 'stock'>) => Promise<void>;
+  onCreateProduct: (product: Omit<Product, 'id' | 'tenant_id'>) => Promise<void>;
   onUpdateProduct: (id: string, updates: Partial<Product>) => Promise<void>;
   onDeleteProduct: (id: string) => Promise<void>;
   onCreateVariant: (variant: Omit<ProductVariant, 'id' | 'tenant_id'>) => Promise<void>;
   onUpdateVariant: (id: string, updates: Partial<ProductVariant>) => Promise<void>;
+  onStockUpdate: (id: string, quantity: number, mode: 'add' | 'set') => Promise<void>;
+  onActivateProduct: (id: string) => Promise<void>;
+  onDeactivateProduct: (id: string) => Promise<void>;
 }
 
 export function TenantProducts({ 
   products, variants, loading, 
   onCreateProduct, onUpdateProduct, onDeleteProduct,
-  onCreateVariant, onUpdateVariant
+  onCreateVariant, onUpdateVariant,
+  onStockUpdate, onActivateProduct, onDeactivateProduct
 }: TenantProductsProps) {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [productFormOpen, setProductFormOpen] = useState(false);
@@ -31,12 +35,22 @@ export function TenantProducts({
   const [duration, setDuration] = useState('1 month');
   const [description, setDescription] = useState('');
   const [autoDelivery, setAutoDelivery] = useState(true);
-  const [active, setActive] = useState(true);
+  const [stock, setStock] = useState('10');
 
   // Variant form states
   const [varName, setVarName] = useState('');
   const [varPrice, setVarPrice] = useState('5.00');
   const [varStock, setVarStock] = useState('10');
+
+  // Stock modals
+  const [stockModal, setStockModal] = useState<{ product: Product; mode: 'add' | 'set' } | null>(null);
+  const [stockQty, setStockQty] = useState('');
+
+  // Manage Stock modal
+  const [manageStockProduct, setManageStockProduct] = useState<Product | null>(null);
+  const [manageStockAddQty, setManageStockAddQty] = useState('');
+  const [manageStockSetQty, setManageStockSetQty] = useState('');
+  const [manageStockLoading, setManageStockLoading] = useState(false);
 
   const openNewProductForm = () => {
     setEditingProduct(null);
@@ -45,7 +59,7 @@ export function TenantProducts({
     setDuration('1 month');
     setDescription('');
     setAutoDelivery(true);
-    setActive(true);
+    setStock('10');
     setProductFormOpen(true);
   };
 
@@ -56,7 +70,7 @@ export function TenantProducts({
     setDuration(p.duration);
     setDescription(p.description);
     setAutoDelivery(p.auto_delivery);
-    setActive(p.active);
+    setStock(String(p.stock));
     setProductFormOpen(true);
   };
 
@@ -65,6 +79,7 @@ export function TenantProducts({
     if (!name.trim()) return;
 
     const parsedPrice = parseFloat(price) || 0;
+    const parsedStock = parseInt(stock) || 0;
     if (editingProduct) {
       await onUpdateProduct(editingProduct.id, {
         name,
@@ -72,7 +87,8 @@ export function TenantProducts({
         duration,
         description,
         auto_delivery: autoDelivery,
-        active
+        stock: parsedStock,
+        active: true,
       });
     } else {
       await onCreateProduct({
@@ -81,7 +97,8 @@ export function TenantProducts({
         duration,
         description,
         auto_delivery: autoDelivery,
-        active
+        stock: parsedStock,
+        active: true,
       });
     }
     setProductFormOpen(false);
@@ -96,11 +113,21 @@ export function TenantProducts({
       name: varName,
       price: parseFloat(varPrice) || 0,
       stock: parseInt(varStock) || 0,
-      active: true
+      active: true,
     });
 
     setVariantFormOpen(false);
     setVarName('');
+  };
+
+  const handleStockSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stockModal || !stockQty.trim()) return;
+    const qty = parseInt(stockQty);
+    if (isNaN(qty) || qty < 0) return;
+    await onStockUpdate(stockModal.product.id, qty, stockModal.mode);
+    setStockModal(null);
+    setStockQty('');
   };
 
   return (
@@ -125,7 +152,7 @@ export function TenantProducts({
       ) : products.length === 0 ? (
         <EmptyState 
           title="Catalog is empty" 
-          description="Create your first digital item. Your customers will see changes in their Telegram bot instantly!"
+          description="Create a product first to manage stock. Your customers will see changes in their Telegram bot instantly!"
           actionLabel="Create Product"
           onAction={openNewProductForm}
         />
@@ -150,7 +177,7 @@ export function TenantProducts({
                     {p.active ? (
                       <span className="text-[10px] bg-emerald-50 border border-emerald-100 text-emerald-700 px-2.5 py-0.5 rounded-full font-bold">Active</span>
                     ) : (
-                      <span className="text-[10px] bg-gray-55 bg-gray-100 border border-gray-200 text-gray-500 px-2.5 py-0.5 rounded-full font-bold">Deactivated</span>
+                      <span className="text-[10px] bg-gray-100 border border-gray-200 text-gray-500 px-2.5 py-0.5 rounded-full font-bold">Deactivated</span>
                     )}
                   </div>
 
@@ -158,14 +185,45 @@ export function TenantProducts({
 
                   <div className="flex items-center space-x-6 text-xs text-gray-500 font-semibold">
                     <div>
-                      Base Price: <span className="text-gray-900 font-bold font-mono">${p.price.toFixed(2)}</span>
+                      Base Price: <span className="text-gray-900 font-bold font-mono">RM{p.price.toFixed(2)}</span>
                     </div>
                     <div>
                       Duration: <span className="text-gray-900 font-bold">{p.duration}</span>
                     </div>
                     <div>
-                      Total Available Stock: <span className={`font-bold font-mono ${p.stock === 0 ? 'text-red-500' : 'text-gray-900'}`}>{p.stock} units</span>
+                      Stock: <span className={`font-bold font-mono ${p.stock === 0 ? 'text-red-500' : 'text-gray-900'}`}>{p.stock}</span>
                     </div>
+                  </div>
+
+                  {/* Stock action buttons */}
+                  <div className="flex flex-wrap items-center gap-2 pt-2">
+                    <button
+                      onClick={() => { setStockModal({ product: p, mode: 'add' }); setStockQty(''); }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 rounded-lg font-bold text-xs cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add Stock
+                    </button>
+                    <button
+                      onClick={() => { setStockModal({ product: p, mode: 'set' }); setStockQty(String(p.stock)); }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded-lg font-bold text-xs cursor-pointer"
+                    >
+                      <Package className="w-3.5 h-3.5" /> Set Stock
+                    </button>
+                    {p.active ? (
+                      <button
+                        onClick={() => onDeactivateProduct(p.id)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded-lg font-bold text-xs cursor-pointer"
+                      >
+                        <PowerOff className="w-3.5 h-3.5" /> Deactivate
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => onActivateProduct(p.id)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 rounded-lg font-bold text-xs cursor-pointer"
+                      >
+                        <Power className="w-3.5 h-3.5" /> Activate
+                      </button>
+                    )}
                   </div>
 
                   {/* Product Variants section */}
@@ -177,16 +235,9 @@ export function TenantProducts({
                           <div key={v.id} className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-1.5 text-xs flex items-center space-x-2.5">
                             <span className="font-semibold text-gray-800">{v.name}</span>
                             <span className="text-gray-400 font-medium">|</span>
-                            <span className="font-mono font-bold text-gray-900">${v.price.toFixed(2)}</span>
+                            <span className="font-mono font-bold text-gray-900">RM{v.price.toFixed(2)}</span>
                             <span className="text-gray-400 font-medium">|</span>
                             <span className={`font-mono font-bold ${v.stock === 0 ? 'text-rose-600' : 'text-gray-600'}`}>{v.stock} in stock</span>
-                            <button
-                              onClick={() => onUpdateVariant(v.id, { active: !v.active })}
-                              className={`p-0.5 rounded-md ${v.active ? 'text-emerald-600 bg-emerald-50' : 'text-gray-400 hover:text-gray-600'}`}
-                              title={v.active ? 'Deactivate Variant' : 'Activate Variant'}
-                            >
-                              <Check className="w-3.5 h-3.5" />
-                            </button>
                           </div>
                         ))}
                       </div>
@@ -196,6 +247,18 @@ export function TenantProducts({
 
                 {/* Catalog Controls */}
                 <div className="flex flex-row md:flex-col justify-end gap-2.5 shrink-0 pt-4 md:pt-0 border-t border-gray-50 md:border-none">
+                  <button
+                    onClick={() => {
+                      setManageStockProduct(p);
+                      setManageStockAddQty('');
+                      setManageStockSetQty(String(p.stock));
+                      setManageStockLoading(false);
+                    }}
+                    className="flex items-center justify-center space-x-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 px-3.5 py-2 rounded-full font-bold text-xs cursor-pointer"
+                  >
+                    <Package className="w-3.5 h-3.5" />
+                    <span>Manage Stock</span>
+                  </button>
                   <button
                     onClick={() => {
                       setSelectedProductForVariant(p);
@@ -262,7 +325,7 @@ export function TenantProducts({
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Base Price ($)</label>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Base Price (RM)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -281,6 +344,21 @@ export function TenantProducts({
                     value={duration}
                     onChange={(e) => setDuration(e.target.value)}
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Stock Quantity</label>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    placeholder="Example: 10"
+                    value={stock}
+                    onChange={(e) => setStock(e.target.value)}
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 font-mono"
                   />
                 </div>
               </div>
@@ -310,20 +388,6 @@ export function TenantProducts({
                 />
               </div>
 
-              {/* Status active/inactive checkbox */}
-              <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4 flex items-center justify-between">
-                <div>
-                  <h4 className="text-xs font-bold text-gray-900 uppercase">Available for Rent/Purchase</h4>
-                  <p className="text-[11px] text-gray-400 mt-0.5">Toggle visibility in customer shop front</p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={active}
-                  onChange={(e) => setActive(e.target.checked)}
-                  className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                />
-              </div>
-
               {/* Action buttons */}
               <div className="pt-4 flex items-center justify-end space-x-3 border-t border-gray-50">
                 <button
@@ -337,10 +401,202 @@ export function TenantProducts({
                   type="submit"
                   className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-full cursor-pointer transition-all shadow-xs"
                 >
-                  Save Changes
+                  {editingProduct ? 'Save Changes' : 'Create Product'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Stock Modal (Add/Set) */}
+      {stockModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full overflow-hidden shadow-2xl border border-gray-100 p-6 space-y-4">
+            <div>
+              <h3 className="font-bold text-gray-950 text-base">
+                {stockModal.mode === 'add' ? 'Add Stock Quantity' : 'Set Stock Quantity'}
+              </h3>
+              <p className="text-[11px] text-gray-400 mt-0.5">
+                Product: <span className="font-bold text-gray-700">{stockModal.product.name}</span>
+                {stockModal.mode === 'add' && (
+                  <span className="block mt-1">Current stock: <span className="font-mono font-bold text-gray-900">{stockModal.product.stock}</span></span>
+                )}
+              </p>
+            </div>
+
+            <form onSubmit={handleStockSubmit} className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-gray-500 block mb-1">
+                  {stockModal.mode === 'add' ? 'Quantity to Add' : 'New Stock Quantity'}
+                </label>
+                <input
+                  type="number"
+                  required
+                  min="0"
+                  placeholder="Example: 10"
+                  value={stockQty}
+                  onChange={(e) => setStockQty(e.target.value)}
+                  className="w-full px-3.5 py-2 border border-gray-200 rounded-xl text-sm font-mono"
+                  autoFocus
+                />
+                {stockModal.mode === 'add' && stockQty && !isNaN(parseInt(stockQty)) && parseInt(stockQty) > 0 && (
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    Result: <span className="font-bold text-gray-700">{stockModal.product.stock + parseInt(stockQty)}</span>
+                  </p>
+                )}
+              </div>
+
+              <div className="pt-2 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setStockModal(null)}
+                  className="px-3 py-1.5 border border-gray-200 text-gray-500 text-xs font-semibold rounded-full cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-full cursor-pointer"
+                >
+                  {stockModal.mode === 'add' ? 'Add Stock' : 'Set Stock'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Stock Modal (unified) */}
+      {manageStockProduct && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full overflow-hidden shadow-2xl border border-gray-100 p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-gray-950 text-base">Manage Stock</h3>
+                <p className="text-[11px] text-gray-400 mt-0.5">{manageStockProduct.name}</p>
+              </div>
+              <button
+                onClick={() => setManageStockProduct(null)}
+                className="p-1 px-2 border border-gray-200 rounded-xl bg-white hover:bg-gray-100 text-gray-400 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Current Stock display */}
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4 text-center">
+              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider">Current Stock</p>
+              <p className={`text-3xl font-bold font-mono mt-1 ${manageStockProduct.stock === 0 ? 'text-red-500' : 'text-gray-900'}`}>
+                {manageStockProduct.stock}
+              </p>
+            </div>
+
+            {/* Add Stock */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-gray-700">Add Stock</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="Quantity to add"
+                  value={manageStockAddQty}
+                  onChange={(e) => setManageStockAddQty(e.target.value)}
+                  className="flex-1 px-3.5 py-2 border border-gray-200 rounded-xl text-sm font-mono"
+                />
+                <button
+                  disabled={manageStockLoading}
+                  onClick={async () => {
+                    const qty = parseInt(manageStockAddQty);
+                    if (isNaN(qty) || qty <= 0) return;
+                    setManageStockLoading(true);
+                    try {
+                      await onStockUpdate(manageStockProduct.id, qty, 'add');
+                      setManageStockProduct(null);
+                    } catch {
+                      setManageStockLoading(false);
+                    }
+                  }}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white text-xs font-bold rounded-full cursor-pointer"
+                >
+                  {manageStockLoading ? '...' : <><Save className="w-3 h-3 inline mr-1" />Add</>}
+                </button>
+              </div>
+              {manageStockAddQty && !isNaN(parseInt(manageStockAddQty)) && parseInt(manageStockAddQty) > 0 && (
+                <p className="text-[10px] text-gray-400">
+                  Result: <span className="font-bold text-gray-700">{manageStockProduct.stock + parseInt(manageStockAddQty)}</span>
+                </p>
+              )}
+            </div>
+
+            {/* Set Stock */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-gray-700">Set Stock (overwrite)</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="New stock quantity"
+                  value={manageStockSetQty}
+                  onChange={(e) => setManageStockSetQty(e.target.value)}
+                  className="flex-1 px-3.5 py-2 border border-gray-200 rounded-xl text-sm font-mono"
+                />
+                <button
+                  disabled={manageStockLoading}
+                  onClick={async () => {
+                    const qty = parseInt(manageStockSetQty);
+                    if (isNaN(qty) || qty < 0) return;
+                    setManageStockLoading(true);
+                    try {
+                      await onStockUpdate(manageStockProduct.id, qty, 'set');
+                      setManageStockProduct(null);
+                    } catch {
+                      setManageStockLoading(false);
+                    }
+                  }}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-xs font-bold rounded-full cursor-pointer"
+                >
+                  {manageStockLoading ? '...' : <><Save className="w-3 h-3 inline mr-1" />Set</>}
+                </button>
+              </div>
+            </div>
+
+            {/* Activate / Deactivate */}
+            <div className="pt-2 border-t border-gray-50">
+              {manageStockProduct.active || manageStockProduct.active === undefined || manageStockProduct.active === null ? (
+                <button
+                  disabled={manageStockLoading}
+                  onClick={async () => {
+                    setManageStockLoading(true);
+                    try {
+                      await onDeactivateProduct(manageStockProduct.id);
+                      setManageStockProduct(null);
+                    } catch {
+                      setManageStockLoading(false);
+                    }
+                  }}
+                  className="w-full py-2.5 bg-amber-50 hover:bg-amber-100 disabled:bg-gray-50 border border-amber-200 text-amber-700 rounded-xl font-bold text-xs cursor-pointer"
+                >
+                  <PowerOff className="w-4 h-4 inline mr-1.5" />Deactivate Product
+                </button>
+              ) : (
+                <button
+                  disabled={manageStockLoading}
+                  onClick={async () => {
+                    setManageStockLoading(true);
+                    try {
+                      await onActivateProduct(manageStockProduct.id);
+                      setManageStockProduct(null);
+                    } catch {
+                      setManageStockLoading(false);
+                    }
+                  }}
+                  className="w-full py-2.5 bg-emerald-50 hover:bg-emerald-100 disabled:bg-gray-50 border border-emerald-200 text-emerald-700 rounded-xl font-bold text-xs cursor-pointer"
+                >
+                  <Power className="w-4 h-4 inline mr-1.5" />Activate Product
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -369,7 +625,7 @@ export function TenantProducts({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-bold text-gray-500 block mb-1">Price ($)</label>
+                  <label className="text-xs font-bold text-gray-500 block mb-1">Price (RM)</label>
                   <input
                     type="number"
                     step="0.01"

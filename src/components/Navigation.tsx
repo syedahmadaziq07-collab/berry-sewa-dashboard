@@ -40,7 +40,6 @@ export function Navigation({ role, activeTab, setActiveTab, onLogout, tenantName
     { id: 'overview', label: 'Master Overview', icon: <LayoutDashboard className="w-5 h-5" /> },
     { id: 'tenants', label: 'Tenants List', icon: <Users className="w-5 h-5" /> },
     { id: 'create', label: 'Create Tenant', icon: <PlusIcon /> },
-    { id: 'audit', label: 'Tenant Audit', icon: <ShieldCheck className="w-5 h-5" /> },
     { id: 'monitor', label: 'Rental Monitor', icon: <ShieldAlert className="w-5 h-5" /> },
   ];
 
@@ -136,6 +135,7 @@ export function Navigation({ role, activeTab, setActiveTab, onLogout, tenantName
             <LogOut className="w-5 h-5" />
             <span>Sign Out</span>
           </button>
+          <p className="text-[9px] text-gray-300 text-center mt-2 font-mono select-none">UI build: manage-stock-v2</p>
         </div>
       </aside>
 
@@ -199,6 +199,7 @@ export function Navigation({ role, activeTab, setActiveTab, onLogout, tenantName
               <LogOut className="w-5 h-5" />
               <span>Sign Out</span>
             </button>
+            <p className="text-[9px] text-gray-300 text-center mt-2 font-mono select-none">UI build: manage-stock-v2</p>
           </div>
         </div>
       </div>
