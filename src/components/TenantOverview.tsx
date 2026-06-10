@@ -87,7 +87,7 @@ export function TenantOverview({ data, loading, onNavigate }: TenantOverviewProp
         <div className="bg-white border border-gray-100 rounded-[24px] p-6 shadow-sm flex items-center justify-between">
           <div>
             <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">Today Revenue</p>
-            <p className="text-2xl font-bold mt-1 text-[#1D1D1F] font-mono">${todayRevenue.toFixed(2)}</p>
+            <p className="text-2xl font-bold mt-1 text-[#1D1D1F] font-mono">RM{todayRevenue.toFixed(2)}</p>
             <p className="text-[11px] text-gray-500 mt-1 font-medium">Accumulated since 12:00 AM</p>
           </div>
           <div className="bg-indigo-55 bg-indigo-50 text-indigo-600 p-3.5 rounded-2xl">
@@ -131,7 +131,7 @@ export function TenantOverview({ data, loading, onNavigate }: TenantOverviewProp
         <div className="bg-white border border-gray-100 rounded-[24px] p-6 shadow-sm flex items-center justify-between">
           <div>
             <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">Full Shop Revenue</p>
-            <p className="text-2xl font-semibold mt-1 text-[#1D1D1F] font-mono">${totalRevenue.toFixed(2)}</p>
+            <p className="text-2xl font-semibold mt-1 text-[#1D1D1F] font-mono">RM{totalRevenue.toFixed(2)}</p>
             <p className="text-[11px] text-gray-500 mt-1 font-medium">Completed lifetime orders</p>
           </div>
           <div className="bg-purple-50 text-purple-600 p-3.5 rounded-2xl">
@@ -253,7 +253,7 @@ export function TenantOverview({ data, loading, onNavigate }: TenantOverviewProp
                   </div>
                   <div className="text-right">
                     <p className="text-xs font-bold text-gray-900 font-mono">{p.salesCount} units</p>
-                    <p className="text-[10px] text-gray-400 font-semibold font-mono">${p.revenue.toFixed(2)}</p>
+                    <p className="text-[10px] text-gray-400 font-semibold font-mono">RM{p.revenue.toFixed(2)}</p>
                   </div>
                 </div>
               ))}

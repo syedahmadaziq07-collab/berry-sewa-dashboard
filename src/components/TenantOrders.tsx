@@ -135,7 +135,7 @@ export function TenantOrders({
                           <div className="text-[10px] text-gray-400 mt-0.5">Option: {details.variantName}</div>
                         )}
                       </td>
-                      <td className="p-4 font-bold text-gray-900 font-mono">${o.amount.toFixed(2)}</td>
+                      <td className="p-4 font-bold text-gray-900 font-mono">RM{o.amount.toFixed(2)}</td>
                       <td className="p-4 text-gray-400 font-medium">
                         {new Date(o.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                       </td>
@@ -168,7 +168,7 @@ export function TenantOrders({
                   </div>
                   <div className="text-xs space-y-1 my-1">
                     <p className="font-semibold text-gray-700"><span className="text-gray-400">User:</span> {o.payer_username || '@nonymous'}</p>
-                    <p className="font-semibold text-gray-700"><span className="text-gray-400">Paid:</span> <span className="font-mono text-gray-900 font-bold">${o.amount.toFixed(2)}</span></p>
+                    <p className="font-semibold text-gray-700"><span className="text-gray-400">Paid:</span> <span className="font-mono text-gray-900 font-bold">RM{o.amount.toFixed(2)}</span></p>
                     <p className="font-semibold text-gray-700">
                       <span className="text-gray-400">Item:</span> {details.productName}
                       {details.variantName && <span className="text-blue-600"> [{details.variantName}]</span>}
@@ -224,7 +224,7 @@ export function TenantOrders({
                 </div>
                 <div className="text-right">
                   <p className="text-gray-400 font-semibold uppercase tracking-wider">Debit Cost</p>
-                  <p className="text-gray-900 font-black text-base font-mono">${selectedOrder.amount.toFixed(2)}</p>
+                  <p className="text-gray-900 font-black text-base font-mono">RM{selectedOrder.amount.toFixed(2)}</p>
                 </div>
               </div>
 

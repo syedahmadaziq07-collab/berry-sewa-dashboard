@@ -14,7 +14,7 @@
       "dashboard_secret_hash": "ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f",
       "dashboard_password_set_at": "2026-05-01T12:10:00Z",
       "dashboard_first_login_at": "2026-05-01T12:10:00Z",
-      "dashboard_last_login_at": "2026-06-10T05:29:36.623Z",
+      "dashboard_last_login_at": "2026-06-10T13:38:27.298Z",
       "dashboard_password_reset_required": false,
       "service_url": "https://shop1.berrybots.com",
       "notes": "Dedicated customer, premium shop instance",
@@ -151,6 +151,21 @@
       "status": "active",
       "active": true,
       "id": "prod_1781069376947_97"
+    },
+    {
+      "tenant_id": "premium_shop",
+      "name": "Stock Test Product",
+      "description": "Test stock",
+      "price": 5,
+      "stock": 0,
+      "duration": "1 month",
+      "is_active": true,
+      "account_type": "",
+      "auto_delivery": true,
+      "variants": [],
+      "status": "active",
+      "active": true,
+      "id": "prod_1781098680906_94"
     }
   ],
   "product_variants": [
@@ -189,6 +204,15 @@
       "stock": 0,
       "active": true,
       "id": "var_1781069376949_37"
+    },
+    {
+      "tenant_id": "premium_shop",
+      "product_id": "prod_1781098680906_94",
+      "name": "1 month",
+      "price": 5,
+      "stock": 10,
+      "active": true,
+      "id": "var_1781098680908_21"
     }
   ],
   "orders": [
@@ -516,6 +540,27 @@
     }
   ],
   "tenant_audit_logs": [
+    {
+      "id": "log_1781098707301_903",
+      "tenant_id": "premium_shop",
+      "action": "LOGIN_SUCCESS",
+      "message": "Dashboard user logged in successfully",
+      "created_at": "2026-06-10T13:38:27.301Z"
+    },
+    {
+      "id": "log_1781098680911_674",
+      "tenant_id": "premium_shop",
+      "action": "PRODUCT_CREATE",
+      "message": "Created product: \"Stock Test Product\" [ID: prod_1781098680906_94] with variant",
+      "created_at": "2026-06-10T13:38:00.911Z"
+    },
+    {
+      "id": "log_1781098680790_462",
+      "tenant_id": "premium_shop",
+      "action": "LOGIN_SUCCESS",
+      "message": "Dashboard user logged in successfully",
+      "created_at": "2026-06-10T13:38:00.790Z"
+    },
     {
       "id": "log_1781069376950_643",
       "tenant_id": "premium_shop",

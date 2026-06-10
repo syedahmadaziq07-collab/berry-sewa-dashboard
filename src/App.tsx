@@ -264,6 +264,47 @@ export default function App() {
     }
   };
 
+  const handleStockUpdate = async (id: string, quantity: number, mode: 'add' | 'set') => {
+    const res = await fetch(`/api/tenant/products/${id}/stock`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ quantity, mode })
+    });
+    if (res.ok) {
+      loadTenantData();
+    } else {
+      const err = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
+      alert(`Stock update failed: ${err.error || 'Unknown error'}`);
+    }
+  };
+
+  const handleActivateProduct = async (id: string) => {
+    const res = await fetch(`/api/tenant/products/${id}/activate`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    if (res.ok) {
+      loadTenantData();
+    } else {
+      const err = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
+      alert(`Activation failed: ${err.error || 'Unknown error'}`);
+    }
+  };
+
+  const handleDeactivateProduct = async (id: string) => {
+    const res = await fetch(`/api/tenant/products/${id}/deactivate`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    if (res.ok) {
+      loadTenantData();
+    } else {
+      const err = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
+      alert(`Deactivation failed: ${err.error || 'Unknown error'}`);
+    }
+  };
+
   const handleCreateVariant = async (form: any) => {
     const res = await fetch('/api/tenant/variants', {
       method: 'POST',
@@ -394,6 +435,16 @@ export default function App() {
     const route = enable ? 'enable-dashboard' : 'disable-dashboard';
     await fetch(`/api/master/tenants/${id}/${route}`, { method: 'POST', credentials: 'include' });
     loadMasterData();
+  };
+
+  const handleInitDefaultSettings = async (tenantId: string): Promise<any> => {
+    const res = await fetch(`/api/master/tenant-audit/init-default-settings/${tenantId}`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to initialize settings');
+    return data;
   };
 
   // -------------------------------------------------------------------
@@ -578,6 +629,9 @@ export default function App() {
                 onDeleteProduct={handleDeleteProduct}
                 onCreateVariant={handleCreateVariant}
                 onUpdateVariant={handleUpdateVariant}
+                onStockUpdate={handleStockUpdate}
+                onActivateProduct={handleActivateProduct}
+                onDeactivateProduct={handleDeactivateProduct}
               />
             )}
 
@@ -645,6 +699,9 @@ export default function App() {
                   onDeleteProduct={handleDeleteProduct}
                   onCreateVariant={handleCreateVariant}
                   onUpdateVariant={handleUpdateVariant}
+                  onStockUpdate={handleStockUpdate}
+                  onActivateProduct={handleActivateProduct}
+                  onDeactivateProduct={handleDeactivateProduct}
                 />
               </div>
             )}
@@ -813,6 +870,7 @@ export default function App() {
             onActivateTenant={handleActivateTenant}
             onResetPassword={handleResetPassword}
             onToggleDashboard={handleToggleDashboard}
+            onInitDefaultSettings={handleInitDefaultSettings}
           />
         )}
       </main>

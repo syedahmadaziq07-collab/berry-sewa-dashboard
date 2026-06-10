@@ -820,6 +820,183 @@ app.delete('/api/tenant/products/:id', requireTenantAuth, async (req: Request, r
   res.json({ message: 'Product deleted' });
 });
 
+// POST /api/tenant/products/:id/stock
+app.post('/api/tenant/products/:id/stock', requireTenantAuth, async (req: Request, res: Response) => {
+  const tenantId = (req as any).tenant_id;
+  const productId = Number(req.params.id);
+  const { quantity, mode } = req.body;
+
+  if (quantity === undefined || quantity === null || !['add', 'set'].includes(mode)) {
+    res.status(400).json({ error: 'quantity and mode (add|set) are required' });
+    return;
+  }
+
+  const qty = Number(quantity);
+  if (isNaN(qty) || qty < 0) {
+    res.status(400).json({ error: 'quantity must be a non-negative number' });
+    return;
+  }
+
+  if (!supabase) {
+    res.status(503).json({ error: 'Supabase is not configured' });
+    return;
+  }
+
+  // Fetch current product stock
+  const { data: product, error: fetchErr } = await supabase
+    .from('products')
+    .select('id, stock, tenant_id')
+    .eq('id', productId)
+    .eq('tenant_id', tenantId)
+    .single();
+
+  if (fetchErr || !product) {
+    console.error('[STOCK_UPDATE] product fetch error:', fetchErr?.message);
+    res.status(404).json({ error: 'Product not found' });
+    return;
+  }
+
+  const oldStock = Number(product.stock) || 0;
+  const newStock = mode === 'add' ? oldStock + qty : qty;
+
+  console.log('[STOCK_UPDATE] === START ===', {
+    tenant_id: tenantId,
+    product_id: productId,
+    old_stock: oldStock,
+    new_stock: newStock,
+    mode,
+    quantity: qty,
+  });
+
+  // Update products.stock
+  const { error: prodUpdateErr } = await supabase
+    .from('products')
+    .update({ stock: newStock })
+    .eq('id', productId)
+    .eq('tenant_id', tenantId);
+
+  if (prodUpdateErr) {
+    console.error('[STOCK_UPDATE] product update error:', prodUpdateErr.message);
+    res.status(500).json({ error: `Failed to update product stock: ${prodUpdateErr.message}` });
+    return;
+  }
+
+  // Update linked product_variants.stock
+  const { data: variants, error: varFetchErr } = await supabase
+    .from('product_variants')
+    .select('id, stock')
+    .eq('product_id', productId)
+    .eq('tenant_id', tenantId);
+
+  if (varFetchErr) {
+    console.error('[STOCK_UPDATE] variant fetch error:', varFetchErr.message);
+  } else if (variants && variants.length > 0) {
+    for (const v of variants) {
+      const oldVarStock = Number(v.stock) || 0;
+      const newVarStock = mode === 'add' ? oldVarStock + qty : qty;
+      const { error: varUpdateErr } = await supabase
+        .from('product_variants')
+        .update({ stock: newVarStock })
+        .eq('id', v.id)
+        .eq('tenant_id', tenantId);
+
+      if (varUpdateErr) {
+        console.error('[STOCK_UPDATE] variant update error:', varUpdateErr.message, { variant_id: v.id });
+      } else {
+        console.log('[STOCK_UPDATE] variant updated', { variant_id: v.id, old_stock: oldVarStock, new_stock: newVarStock });
+      }
+    }
+  }
+
+  console.log('[STOCK_UPDATE] === DONE ===', {
+    tenant_id: tenantId,
+    product_id: productId,
+    old_stock: oldStock,
+    new_stock: newStock,
+    mode,
+    variants_updated: variants?.length || 0,
+  });
+
+  db.log(tenantId, 'STOCK_UPDATE', `Stock ${mode} for product ${productId}: ${oldStock} -> ${newStock}`);
+
+  res.json({
+    success: true,
+    product_id: productId,
+    old_stock: oldStock,
+    new_stock: newStock,
+    mode,
+    variants_updated: variants?.length || 0,
+  });
+});
+
+// POST /api/tenant/products/:id/activate
+app.post('/api/tenant/products/:id/activate', requireTenantAuth, async (req: Request, res: Response) => {
+  const tenantId = (req as any).tenant_id;
+  const productId = Number(req.params.id);
+
+  if (!supabase) {
+    res.status(503).json({ error: 'Supabase is not configured' });
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from('products')
+    .update({ is_active: true, status: 'active' })
+    .eq('id', productId)
+    .eq('tenant_id', tenantId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[PRODUCT_ACTIVATE] Supabase error:', error.message);
+    res.status(500).json({ error: `Activation failed: ${error.message}` });
+    return;
+  }
+
+  if (!data) {
+    res.status(404).json({ error: 'Product not found' });
+    return;
+  }
+
+  db.log(tenantId, 'PRODUCT_ACTIVATE', `Activated product ID: ${productId} - "${data.name}"`);
+  console.log('[PRODUCT_ACTIVATE] Activated:', { product_id: productId, name: data.name });
+  res.json(mapProductRow(data));
+});
+
+// POST /api/tenant/products/:id/deactivate
+app.post('/api/tenant/products/:id/deactivate', requireTenantAuth, async (req: Request, res: Response) => {
+  const tenantId = (req as any).tenant_id;
+  const productId = Number(req.params.id);
+
+  if (!supabase) {
+    res.status(503).json({ error: 'Supabase is not configured' });
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from('products')
+    .update({ is_active: false, status: 'inactive' })
+    .eq('id', productId)
+    .eq('tenant_id', tenantId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[PRODUCT_DEACTIVATE] Supabase error:', error.message);
+    res.status(500).json({ error: `Deactivation failed: ${error.message}` });
+    return;
+  }
+
+  if (!data) {
+    res.status(404).json({ error: 'Product not found' });
+    return;
+  }
+
+  db.log(tenantId, 'PRODUCT_DEACTIVATE', `Deactivated product ID: ${productId} - "${data.name}"`);
+  console.log('[PRODUCT_DEACTIVATE] Deactivated:', { product_id: productId, name: data.name });
+  res.json(mapProductRow(data));
+});
+
 // GET /api/tenant/variants
 app.get('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
@@ -1645,6 +1822,43 @@ app.post('/api/master/tenants', requireMasterAuth, async (req: Request, res: Res
     }
 
     tenantUuid = data.id;
+
+    // Seed default bot_settings in Supabase
+    const defaultBotSettings = [
+      { key: 'welcome_message', value: 'Welcome to our store.', description: 'Greeting message sent to new bot users' },
+      { key: 'support_username', value: '@berry_support', description: 'Username for customer support inquiries' },
+      { key: 'shop_title', value: '📦 LIST PRODUCTS', description: 'Message header when showing products' },
+      { key: 'shop_footer', value: 'Tap a product to view details.', description: 'Message footer when showing products' },
+      { key: 'out_of_stock_msg', value: '⚠️ Stock is currently unavailable.', description: 'Shown when a product/variant is out of stock' },
+      { key: 'product_delivery_note', value: '• Account will be delivered immediately after payment.', description: 'Note shown before checking out' },
+      { key: 'payment_title', value: '💳 PAYMENT DETAILS', description: 'Title of the payment instructions screen' },
+      { key: 'payment_instruction', value: 'Please scan the QR code to pay.', description: 'General payment instructions' },
+      { key: 'payment_button_instruction', value: 'After payment, click the button below.', description: 'Instructions on the confirmation button' },
+      { key: 'order_summary_title', value: '🧾 ORDER SUMMARY', description: 'Title shown with order itemization' },
+      { key: 'order_proceed_msg', value: 'Please continue to payment.', description: 'Subtext directing to checkout' },
+      { key: 'delivery_msg', value: 'Your account will be delivered soon.', description: 'Message for manual delivery receipt' },
+      { key: 'auto_delivery_msg', value: 'Your account is ready: {email} {password}', description: 'Template for automatic credential delivery' },
+      { key: 'testimonial_template', value: 'Thank you for your purchase!', description: 'Template for customer testimonial' },
+      { key: 'payment_qr_file_id', value: '', description: 'Telegram File ID for payment QR code' },
+      { key: 'banner_file_id', value: '', description: 'Telegram File ID for shop welcome banner' },
+      { key: 'payment_qr_url', value: '', description: 'Public URL of store payment QR image' },
+      { key: 'banner_url', value: '', description: 'Public URL of shop welcome banner image' },
+    ];
+    const settingsRows = defaultBotSettings.map(s => ({
+      tenant_id: tenantUuid,
+      key: s.key,
+      value: s.value,
+      description: s.description,
+    }));
+    const { error: settingsError } = await supabase
+      .from('bot_settings')
+      .insert(settingsRows);
+    if (settingsError) {
+      console.error('[TENANT] Supabase bot_settings seed error:', settingsError.message);
+      // do not fail — product was created, settings can be seeded later
+    } else {
+      console.log('[TENANT] Seeded default bot_settings for tenant:', tenantUuid);
+    }
   } else {
     tenantUuid = crypto.randomUUID();
   }
@@ -1863,6 +2077,350 @@ app.get('/api/master/rental-monitor', requireMasterAuth, (req: Request, res: Res
     noPaymentQR,
     noCredentials
   });
+});
+
+// -------------------------------------------------------------------
+// MASTER TENANT AUDIT ENDPOINTS
+// -------------------------------------------------------------------
+
+// GET /api/master/tenant-audit/:tenantId
+app.get('/api/master/tenant-audit/:tenantId', requireMasterAuth, async (req: Request, res: Response) => {
+  const tenantId = req.params.tenantId;
+
+  if (!supabase) {
+    res.status(503).json({ error: 'Supabase is not configured' });
+    return;
+  }
+
+  const warnings: string[] = [];
+  const errors: string[] = [];
+  const tableMissing: string[] = [];
+  const counts: Record<string, number | null> = {};
+  const nullTenantRows: string[] = [];
+  const results: Record<string, any> = {};
+
+  console.log('[TENANT_AUDIT] === START === tenant:', tenantId);
+
+  // 1. Fetch tenant row
+  const { data: tenantRow, error: tenantErr } = await supabase
+    .from('tenants')
+    .select('*')
+    .eq('id', tenantId)
+    .single();
+  if (tenantErr) {
+    console.error('[TENANT_AUDIT] tenant fetch error:', tenantErr.message);
+    errors.push(`tenant fetch: ${tenantErr.message}`);
+  }
+  results.tenant = tenantRow || null;
+
+  // Helper to count rows in a table (graceful if table missing)
+  async function safeCount(table: string, label: string, tenantFilter = true): Promise<number | null> {
+    try {
+      let query = supabase!.from(table).select('*', { count: 'exact', head: true });
+      if (tenantFilter) query = query.eq('tenant_id', tenantId);
+      const { count, error } = await query;
+      if (error) {
+        if (error.message?.includes('does not exist') || error.message?.includes('relation') || error.code === '42P01') {
+          tableMissing.push(table);
+          return null;
+        }
+        console.warn(`[TENANT_AUDIT] count ${label} warning:`, error.message);
+        warnings.push(`${label} count: ${error.message}`);
+        return null;
+      }
+      return count || 0;
+    } catch (e: any) {
+      if (e.message?.includes('does not exist') || e.message?.includes('relation')) {
+        tableMissing.push(table);
+        return null;
+      }
+      console.warn(`[TENANT_AUDIT] count ${label} exception:`, e.message);
+      return null;
+    }
+  }
+
+  counts.bot_settings = await safeCount('bot_settings', 'bot_settings');
+  counts.products = await safeCount('products', 'products');
+  counts.product_variants = await safeCount('product_variants', 'product_variants');
+  counts.orders = await safeCount('orders', 'orders');
+  counts.credentials = await safeCount('credentials', 'credentials');
+  counts.users = await safeCount('users', 'users');
+  counts.points = await safeCount('points_history', 'points_history');
+  counts.rental_payments = await safeCount('rental_payments', 'rental_payments');
+  counts.push_subscriptions = await safeCount('push_subscriptions', 'push_subscriptions');
+
+  // Check for missing setup items
+  const missingSetup: string[] = [];
+
+  // Check payment_qr_url and banner_url from bot_settings
+  if (!tableMissing.includes('bot_settings') && counts.bot_settings !== null && counts.bot_settings > 0) {
+    const { data: qrSetting } = await supabase
+      .from('bot_settings')
+      .select('value')
+      .eq('tenant_id', tenantId)
+      .eq('key', 'payment_qr_url')
+      .single();
+    if (!qrSetting || !qrSetting.value) {
+      missingSetup.push('payment_qr_url empty');
+    }
+    const { data: bannerSetting } = await supabase
+      .from('bot_settings')
+      .select('value')
+      .eq('tenant_id', tenantId)
+      .eq('key', 'banner_url')
+      .single();
+    if (!bannerSetting || !bannerSetting.value) {
+      missingSetup.push('banner_url empty');
+    }
+  } else if (!tableMissing.includes('bot_settings')) {
+    // No bot_settings means qr and banner are missing
+    missingSetup.push('payment_qr_url empty');
+    missingSetup.push('banner_url empty');
+  }
+
+  if (counts.products === 0) missingSetup.push('products count = 0');
+  if (counts.product_variants === 0) missingSetup.push('product_variants count = 0');
+  if (counts.credentials === 0) missingSetup.push('credentials count = 0');
+
+  // Orphan variants: product_variants.product_id does not link to products.id
+  if (counts.product_variants !== null && counts.product_variants > 0) {
+    try {
+      const { data: prodIds } = await supabase!
+        .from('products')
+        .select('id')
+        .eq('tenant_id', tenantId);
+      const validProductIds = (prodIds || []).map((p: any) => p.id);
+      const { data: allVariants } = await supabase!
+        .from('product_variants')
+        .select('id, product_id, variant_name')
+        .eq('tenant_id', tenantId);
+      const orphanVariants = (allVariants || []).filter((v: any) => !validProductIds.includes(v.product_id));
+      results.orphan_variants = orphanVariants;
+      if (orphanVariants.length > 0) {
+        warnings.push(`${orphanVariants.length} orphan variant(s) found`);
+      }
+    } catch (e: any) {
+      console.warn('[TENANT_AUDIT] orphan check warning:', e.message);
+    }
+  } else {
+    results.orphan_variants = [];
+  }
+
+  // Mismatched variants: product_variants.tenant_id != products.tenant_id
+  if (counts.product_variants !== null && counts.product_variants > 0 && counts.products !== null && counts.products > 0) {
+    try {
+      const { data: prods } = await supabase!
+        .from('products')
+        .select('id, tenant_id')
+        .eq('tenant_id', tenantId);
+      const productMap = new Map((prods || []).map((p: any) => [p.id, p.tenant_id]));
+      const { data: vars } = await supabase!
+        .from('product_variants')
+        .select('id, product_id, tenant_id')
+        .eq('tenant_id', tenantId);
+      const mismatched = (vars || []).filter((v: any) => {
+        const prodTenant = productMap.get(v.product_id);
+        return prodTenant && prodTenant !== v.tenant_id;
+      });
+      results.mismatched_variants = mismatched;
+      if (mismatched.length > 0) {
+        warnings.push(`${mismatched.length} mismatched variant(s) found`);
+      }
+    } catch (e: any) {
+      console.warn('[TENANT_AUDIT] mismatch check warning:', e.message);
+    }
+  } else {
+    results.mismatched_variants = [];
+  }
+
+  // Check for null tenant_id rows in tenant tables
+  const nullCheckTables = ['products', 'orders', 'credentials', 'bot_settings', 'product_variants', 'users'];
+  for (const tbl of nullCheckTables) {
+    if (tableMissing.includes(tbl)) continue;
+    try {
+      const { count, error } = await supabase!
+        .from(tbl)
+        .select('*', { count: 'exact', head: true })
+        .is('tenant_id', null);
+      if (error) continue;
+      if (count && count > 0) {
+        nullTenantRows.push(`${tbl}: ${count} rows with null tenant_id`);
+      }
+    } catch (e) {
+      // skip
+    }
+  }
+  results.null_tenant_id_rows = nullTenantRows;
+
+  const response = {
+    tenant: results.tenant,
+    counts,
+    missing_setup: missingSetup,
+    orphan_variants: results.orphan_variants || [],
+    mismatched_variants: results.mismatched_variants || [],
+    null_tenant_id_rows: nullTenantRows,
+    table_missing: tableMissing,
+    warnings,
+    errors,
+    source: 'supabase' as const,
+  };
+
+  console.log('[TENANT_AUDIT] results:', JSON.stringify({
+    tenant_id: tenantId,
+    counts,
+    missingSetup,
+    orphanCount: (results.orphan_variants || []).length,
+    mismatchCount: (results.mismatched_variants || []).length,
+    nullTenantRows,
+    tableMissing,
+    warnings,
+    errors,
+  }));
+
+  res.json(response);
+});
+
+// GET /api/master/tenant-audit-all
+app.get('/api/master/tenant-audit-all', requireMasterAuth, async (req: Request, res: Response) => {
+  if (!supabase) {
+    res.status(503).json({ error: 'Supabase is not configured' });
+    return;
+  }
+
+  console.log('[TENANT_AUDIT] listing all tenants from Supabase...');
+
+  const { data: tenants, error } = await supabase
+    .from('tenants')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('[TENANT_AUDIT] tenant list error:', error.message);
+    res.status(500).json({ error: `Supabase query failed: ${error.message}` });
+    return;
+  }
+
+  const enriched = await Promise.all((tenants || []).map(async (t: any) => {
+    const tid = t.id;
+
+    async function safeCount(table: string, tenantFilter = true): Promise<number | null> {
+      try {
+        let q = supabase!.from(table).select('*', { count: 'exact', head: true });
+        if (tenantFilter) q = q.eq('tenant_id', tid);
+        const { count, error: e } = await q;
+        if (e) return null;
+        return count || 0;
+      } catch { return null; }
+    }
+
+    const [botSettingsCount, productsCount, variantsCount, ordersCount, credentialsCount, usersCount] =
+      await Promise.all([
+        safeCount('bot_settings'),
+        safeCount('products'),
+        safeCount('product_variants'),
+        safeCount('orders'),
+        safeCount('credentials'),
+        safeCount('users'),
+      ]);
+
+    let health: 'OK' | 'NEED_SETUP' | 'ERROR' = 'OK';
+    if (productsCount === 0 || variantsCount === 0 || credentialsCount === 0) {
+      health = 'NEED_SETUP';
+    }
+    if (botSettingsCount === null && productsCount === null) {
+      health = 'ERROR';
+    }
+
+    return {
+      tenant_id: tid,
+      name: t.name,
+      bot_username: t.bot_username,
+      status: t.status,
+      rent_start: t.rent_start,
+      rent_end: t.rent_end,
+      counts: {
+        bot_settings: botSettingsCount,
+        products: productsCount,
+        variants: variantsCount,
+        orders: ordersCount,
+        credentials: credentialsCount,
+        users: usersCount,
+      },
+      health,
+    };
+  }));
+
+  res.json(enriched);
+});
+
+// POST /api/master/tenant-audit/init-default-settings/:tenantId
+app.post('/api/master/tenant-audit/init-default-settings/:tenantId', requireMasterAuth, async (req: Request, res: Response) => {
+  const tenantId = req.params.tenantId;
+
+  if (!supabase) {
+    res.status(503).json({ error: 'Supabase is not configured' });
+    return;
+  }
+
+  console.log('[TENANT_AUDIT] init-default-settings for tenant:', tenantId);
+
+  // Try Supabase RPC function first
+  try {
+    const { error: rpcError } = await supabase.rpc('create_default_bot_settings', { p_tenant_id: tenantId });
+    if (!rpcError) {
+      console.log('[TENANT_AUDIT] RPC create_default_bot_settings succeeded for:', tenantId);
+      res.json({ success: true, method: 'rpc', message: 'Default bot settings initialized via RPC' });
+      return;
+    }
+    if (rpcError.message?.includes('function') && rpcError.message?.includes('not found')) {
+      console.log('[TENANT_AUDIT] RPC function not found, falling back to direct insert');
+    } else {
+      console.error('[TENANT_AUDIT] RPC error:', rpcError.message);
+      res.status(500).json({ error: `RPC failed: ${rpcError.message}` });
+      return;
+    }
+  } catch (e: any) {
+    console.log('[TENANT_AUDIT] RPC exception, falling back to direct insert:', e.message);
+  }
+
+  // Fallback: direct insert into bot_settings
+  const defaultBotSettings = [
+    { key: 'welcome_message', value: 'Welcome to our store.', description: 'Greeting message sent to new bot users' },
+    { key: 'support_username', value: '@berry_support', description: 'Username for customer support inquiries' },
+    { key: 'shop_title', value: '📦 LIST PRODUCTS', description: 'Message header when showing products' },
+    { key: 'shop_footer', value: 'Tap a product to view details.', description: 'Message footer when showing products' },
+    { key: 'out_of_stock_msg', value: '⚠️ Stock is currently unavailable.', description: 'Shown when a product/variant is out of stock' },
+    { key: 'product_delivery_note', value: '• Account will be delivered immediately after payment.', description: 'Note shown before checking out' },
+    { key: 'payment_title', value: '💳 PAYMENT DETAILS', description: 'Title of the payment instructions screen' },
+    { key: 'payment_instruction', value: 'Please scan the QR code to pay.', description: 'General payment instructions' },
+    { key: 'payment_button_instruction', value: 'After payment, click the button below.', description: 'Instructions on the confirmation button' },
+    { key: 'order_summary_title', value: '🧾 ORDER SUMMARY', description: 'Title shown with order itemization' },
+    { key: 'order_proceed_msg', value: 'Please continue to payment.', description: 'Subtext directing to checkout' },
+    { key: 'delivery_msg', value: 'Your account will be delivered soon.', description: 'Message for manual delivery receipt' },
+    { key: 'auto_delivery_msg', value: 'Your account is ready: {email} {password}', description: 'Template for automatic credential delivery' },
+    { key: 'testimonial_template', value: 'Thank you for your purchase!', description: 'Template for customer testimonial' },
+    { key: 'payment_qr_file_id', value: '', description: 'Telegram File ID for payment QR code' },
+    { key: 'banner_file_id', value: '', description: 'Telegram File ID for shop welcome banner' },
+    { key: 'payment_qr_url', value: '', description: 'Public URL of store payment QR image' },
+    { key: 'banner_url', value: '', description: 'Public URL of shop welcome banner image' },
+  ];
+
+  const rows = defaultBotSettings.map(s => ({
+    tenant_id: tenantId,
+    key: s.key,
+    value: s.value,
+    description: s.description,
+  }));
+
+  const { error: insertErr } = await supabase.from('bot_settings').insert(rows);
+  if (insertErr) {
+    console.error('[TENANT_AUDIT] direct insert error:', insertErr.message);
+    res.status(500).json({ error: `Direct insert failed: ${insertErr.message}` });
+    return;
+  }
+
+  console.log('[TENANT_AUDIT] Default bot_settings inserted directly for:', tenantId);
+  res.json({ success: true, method: 'direct_insert', message: `Inserted ${rows.length} default settings` });
 });
 
 // GET /api/debug/tenant-data

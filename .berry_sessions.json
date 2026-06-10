@@ -14,5 +14,16 @@
   "sess_e39db97a-3c76-4c9f-a5e2-5609c643a64e": {
     "role": "tenant",
     "tenant_id": "premium_shop"
+  },
+  "master_4f123278-d469-4bdd-a575-58470065e8ab": {
+    "role": "master"
+  },
+  "sess_0ae5ec76-6410-41dd-8448-11049b846dad": {
+    "role": "tenant",
+    "tenant_id": "premium_shop"
+  },
+  "sess_306cbed3-f2ff-4257-9142-08aaee4161e2": {
+    "role": "tenant",
+    "tenant_id": "premium_shop"
   }
 }

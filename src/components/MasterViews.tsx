@@ -3,7 +3,7 @@ import { Tenant } from '../types';
 import { 
   Users, DollarSign, ShieldAlert, Sparkles, Plus, 
   HelpCircle, Eye, RefreshCw, Calendar, FileText, CheckCircle2, Lock, Unlock, Key,
-  Copy, AlertCircle
+  Copy, AlertCircle, ClipboardList, ShieldCheck, X
 } from 'lucide-react';
 import { TableSkeleton } from './Skeleton';
 import { EmptyState } from './EmptyState';
@@ -35,11 +35,12 @@ interface MasterViewsProps {
   onActivateTenant: (id: string) => Promise<void>;
   onResetPassword: (id: string) => Promise<void>;
   onToggleDashboard: (id: string, enable: boolean) => Promise<void>;
+  onInitDefaultSettings?: (tenantId: string) => Promise<any>;
 }
 
 export function MasterViews({
   overview, tenants, rentalMonitor, loading, activeTab, setActiveTab,
-  onCreateTenant, onExtendRent, onSuspendTenant, onActivateTenant, onResetPassword, onToggleDashboard
+  onCreateTenant, onExtendRent, onSuspendTenant, onActivateTenant, onResetPassword, onToggleDashboard, onInitDefaultSettings
 }: MasterViewsProps) {
   
   // Create Form states
@@ -62,6 +63,13 @@ export function MasterViews({
 
   // Monitor categorization tabs
   const [monitorCategory, setMonitorCategory] = useState('all');
+
+  // Audit state
+  const [auditData, setAuditData] = useState<any[] | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [selectedAudit, setSelectedAudit] = useState<any | null>(null);
+  const [initSettingsLoading, setInitSettingsLoading] = useState<string | null>(null);
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -175,7 +183,7 @@ SUPABASE_SERVICE_KEY=`;
 
           <div className="bg-white border border-gray-100 rounded-[24px] p-5 shadow-sm">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Monthly Licenses run-rate</p>
-            <p className="text-2xl font-black mt-1 font-mono text-indigo-600">${overview.totalRentalRevenue.toFixed(2)}</p>
+            <p className="text-2xl font-black mt-1 font-mono text-indigo-600">RM{overview.totalRentalRevenue.toFixed(2)}</p>
             <p className="text-[10px] text-gray-400 mt-1 font-medium">Estimated monthly billing revenue</p>
           </div>
         </div>
@@ -207,7 +215,7 @@ SUPABASE_SERVICE_KEY=`;
                   </div>
                   <div className="flex items-center space-x-6 self-end sm:self-auto font-semibold">
                     <div>
-                      Month Rent: <span className="font-mono font-bold text-gray-900">${t.monthly_price}</span>
+                      Month Rent: <span className="font-mono font-bold text-gray-900">RM{t.monthly_price}</span>
                     </div>
                     <div>
                       Days left: <span className={`font-mono font-bold ${t.days_left <= 7 ? 'text-rose-600' : 'text-emerald-600'}`}>{t.days_left}d</span>
@@ -243,6 +251,7 @@ SUPABASE_SERVICE_KEY=`;
                   <th className="p-4">Rented Price</th>
                   <th className="p-4">Orders count</th>
                   <th className="p-4">Status</th>
+                  <th className="p-4">Health</th>
                   <th className="p-4 pr-6 text-right">Administrative Actions</th>
                 </tr>
               </thead>
@@ -273,20 +282,78 @@ SUPABASE_SERVICE_KEY=`;
                         {t.days_left > 0 ? `${t.days_left} Days Remaining` : 'Expired'}
                       </p>
                     </td>
-                    <td className="p-4 font-bold text-gray-950 font-mono">${t.monthly_price}/mo</td>
+                    <td className="p-4 font-bold text-gray-950 font-mono">RM{t.monthly_price}/mo</td>
                     <td className="p-4 font-mono font-bold text-gray-900">{t.stats?.total_ordersCount || 0} checks</td>
                     <td className="p-4">{getStatusBadge(t.status)}</td>
+                    <td className="p-4">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        t.health === 'OK' ? 'bg-emerald-50 text-emerald-700' :
+                        t.health === 'NEED_SETUP' ? 'bg-amber-50 text-amber-700' :
+                        'bg-rose-50 text-rose-700'
+                      }`}>
+                        {t.health || 'OK'}
+                      </span>
+                    </td>
                     <td className="p-4 pr-6 text-right">
-                      <button
-                        onClick={() => {
-                          setDetailedTenant(t);
-                          setExtendAmt('1');
-                        }}
-                        className="px-3 py-1.5 bg-gray-50 hover:bg-gray-150 border border-gray-200 text-gray-700 rounded-lg font-bold transition-all inline-flex items-center space-x-1 cursor-pointer"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Manage / Extensions</span>
-                      </button>
+                      <div className="flex items-center justify-end gap-1 flex-wrap">
+                        <button
+                          onClick={async () => {
+                            setAuditLoading(true);
+                            setAuditError(null);
+                            try {
+                              const res = await fetch(`/api/master/tenant-audit/${t.tenant_id}`, { credentials: 'include' });
+                              const data = await res.json();
+                              if (!res.ok) throw new Error(data.error || 'Audit failed');
+                              setSelectedAudit(data);
+                            } catch (err: any) {
+                              setAuditError(err.message);
+                            } finally {
+                              setAuditLoading(false);
+                            }
+                          }}
+                          className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 rounded-lg font-bold transition-all text-[10px] cursor-pointer inline-flex items-center gap-1"
+                        >
+                          <ClipboardList className="w-3 h-3" />
+                          Audit
+                        </button>
+                        <button
+                          onClick={() => copyToClipboard(t.tenant_id)}
+                          className="px-2 py-1 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-600 rounded-lg font-bold transition-all text-[10px] cursor-pointer inline-flex items-center gap-1"
+                          title="Copy Tenant ID"
+                        >
+                          <Copy className="w-3 h-3" />
+                          ID
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!onInitDefaultSettings) return;
+                            setInitSettingsLoading(t.tenant_id);
+                            try {
+                              const result = await onInitDefaultSettings(t.tenant_id);
+                              alert(result?.message || 'Default settings initialized');
+                            } catch (err: any) {
+                              alert('Failed: ' + (err.message || 'Unknown error'));
+                            } finally {
+                              setInitSettingsLoading(null);
+                            }
+                          }}
+                          disabled={initSettingsLoading === t.tenant_id}
+                          className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 rounded-lg font-bold transition-all text-[10px] cursor-pointer inline-flex items-center gap-1 disabled:opacity-50"
+                        >
+                          <ShieldCheck className="w-3 h-3" />
+                          {initSettingsLoading === t.tenant_id ? '...' : 'Init Settings'}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setDetailedTenant(t);
+                            setExtendAmt('1');
+                          }}
+                          className="px-3 py-1 bg-gray-50 hover:bg-gray-150 border border-gray-200 text-gray-700 rounded-lg font-bold transition-all inline-flex items-center space-x-1 cursor-pointer text-[10px]"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Manage</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -313,22 +380,77 @@ SUPABASE_SERVICE_KEY=`;
                       </button>
                     </p>
                   </div>
-                  <span>{getStatusBadge(t.status)}</span>
+                  <div className="flex flex-col items-end gap-1">
+                    {getStatusBadge(t.status)}
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      t.health === 'OK' ? 'bg-emerald-50 text-emerald-700' :
+                      t.health === 'NEED_SETUP' ? 'bg-amber-50 text-amber-700' :
+                      'bg-rose-50 text-rose-700'
+                    }`}>
+                      {t.health || 'OK'}
+                    </span>
+                  </div>
                 </div>
                 <div className="space-y-1 text-gray-600 font-semibold my-1">
                   <p><span className="text-gray-400">Telegram Admin:</span> {t.owner_username ? `@${t.owner_username}` : t.owner_telegram_id}</p>
                   <p><span className="text-gray-400">License ends:</span> {new Date(t.rent_end).toLocaleDateString()} ({t.days_left}d left)</p>
-                  <p><span className="text-gray-400">Sub Price:</span> <span className="font-mono text-gray-900 font-bold">${t.monthly_price}/mo</span></p>
+                  <p><span className="text-gray-400">Sub Price:</span> <span className="font-mono text-gray-900 font-bold">RM{t.monthly_price}/mo</span></p>
                 </div>
-                <button
-                  onClick={() => {
-                    setDetailedTenant(t);
-                    setExtendAmt('1');
-                  }}
-                  className="w-full text-center py-2 bg-white border border-gray-200 rounded-xl font-bold text-gray-600 hover:bg-gray-100 cursor-pointer"
-                >
-                  Manage properties
-                </button>
+                <div className="flex gap-2 mt-1">
+                  <button
+                    onClick={async () => {
+                      setAuditLoading(true);
+                      setAuditError(null);
+                      try {
+                        const res = await fetch(`/api/master/tenant-audit/${t.tenant_id}`, { credentials: 'include' });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.error || 'Audit failed');
+                        setSelectedAudit(data);
+                      } catch (err: any) {
+                        setAuditError(err.message);
+                      } finally {
+                        setAuditLoading(false);
+                      }
+                    }}
+                    className="flex-1 text-center py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl font-bold text-[10px] cursor-pointer hover:bg-indigo-100"
+                  >
+                    <ClipboardList className="w-3 h-3 inline mr-1" />Audit
+                  </button>
+                  <button
+                    onClick={() => copyToClipboard(t.tenant_id)}
+                    className="py-2 px-3 bg-gray-50 border border-gray-200 text-gray-600 rounded-xl font-bold text-[10px] cursor-pointer hover:bg-gray-100"
+                    title="Copy Tenant ID"
+                  >
+                    <Copy className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!onInitDefaultSettings) return;
+                      setInitSettingsLoading(t.tenant_id);
+                      try {
+                        const result = await onInitDefaultSettings(t.tenant_id);
+                        alert(result?.message || 'Default settings initialized');
+                      } catch (err: any) {
+                        alert('Failed: ' + (err.message || 'Unknown error'));
+                      } finally {
+                        setInitSettingsLoading(null);
+                      }
+                    }}
+                    disabled={initSettingsLoading === t.tenant_id}
+                    className="py-2 px-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl font-bold text-[10px] cursor-pointer hover:bg-emerald-100 disabled:opacity-50"
+                  >
+                    <ShieldCheck className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setDetailedTenant(t);
+                      setExtendAmt('1');
+                    }}
+                    className="flex-1 text-center py-2 bg-white border border-gray-200 rounded-xl font-bold text-gray-600 hover:bg-gray-100 cursor-pointer text-[10px]"
+                  >
+                    Manage
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -374,7 +496,7 @@ SUPABASE_SERVICE_KEY=`;
                   </div>
                   <div className="p-3 bg-gray-50 border border-gray-100 rounded-2xl">
                     <p className="text-[10px] text-gray-400 uppercase font-black uppercase">Store Revenue</p>
-                    <p className="text-lg font-mono font-black text-emerald-600 mt-1">${(detailedTenant.stats?.revenue || 0).toFixed(2)}</p>
+                    <p className="text-lg font-mono font-black text-emerald-600 mt-1">RM{(detailedTenant.stats?.revenue || 0).toFixed(2)}</p>
                   </div>
                 </div>
 
@@ -772,6 +894,327 @@ SUPABASE_SERVICE_KEY=`;
             </div>
           )}
         </div>
+      </div>
+    );
+  }
+
+  // 5. TENANT AUDIT PAGE
+  if (activeTab === 'audit') {
+    return (
+      <div className="space-y-6 animate-fade-in">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Tenant Audit System</h2>
+            <p className="text-sm text-gray-500 mt-1">Verify tenant data integrity across all Supabase tables.</p>
+          </div>
+          <button
+            onClick={async () => {
+              setAuditLoading(true);
+              setAuditError(null);
+              try {
+                const res = await fetch('/api/master/tenant-audit-all', { credentials: 'include' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Failed to load audit');
+                setAuditData(data);
+              } catch (err: any) {
+                setAuditError(err.message);
+              } finally {
+                setAuditLoading(false);
+              }
+            }}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all cursor-pointer inline-flex items-center gap-1.5"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${auditLoading ? 'animate-spin' : ''}`} />
+            Refresh All
+          </button>
+        </div>
+
+        {auditError && (
+          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-start space-x-3">
+            <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-rose-800 font-bold text-sm">Audit Error</p>
+              <p className="text-rose-700 text-xs mt-1 font-mono">{auditError}</p>
+            </div>
+          </div>
+        )}
+
+        {auditLoading && !auditData && <TableSkeleton />}
+
+        {auditData && (
+          <div className="bg-white border border-gray-100 rounded-3xl shadow-sm overflow-hidden">
+            <div className="hidden lg:block overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs text-gray-700">
+                <thead>
+                  <tr className="bg-gray-50 text-gray-500 font-bold uppercase border-b border-gray-100 tracking-wider">
+                    <th className="p-4 pl-6">Tenant</th>
+                    <th className="p-4">Status</th>
+                    <th className="p-4">Health</th>
+                    <th className="p-4">Bot Settings</th>
+                    <th className="p-4">Products</th>
+                    <th className="p-4">Variants</th>
+                    <th className="p-4">Orders</th>
+                    <th className="p-4">Credentials</th>
+                    <th className="p-4">Users</th>
+                    <th className="p-4 pr-6">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {auditData.map((t: any) => (
+                    <tr key={t.tenant_id} className="hover:bg-gray-50/50 transition-all font-semibold">
+                      <td className="p-4 pl-6">
+                        <p className="font-bold text-gray-900">{t.name}</p>
+                        <p className="text-[10px] text-gray-400 font-mono mt-0.5">{t.bot_username}</p>
+                        <p className="text-[10px] text-gray-400 font-mono mt-0.5">{t.tenant_id}</p>
+                      </td>
+                      <td className="p-4">{getStatusBadge(t.status)}</td>
+                      <td className="p-4">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          t.health === 'OK' ? 'bg-emerald-50 text-emerald-700' :
+                          t.health === 'NEED_SETUP' ? 'bg-amber-50 text-amber-700' :
+                          'bg-rose-50 text-rose-700'
+                        }`}>{t.health}</span>
+                      </td>
+                      <td className="p-4 font-mono">{t.counts?.bot_settings ?? '-'}</td>
+                      <td className="p-4 font-mono">{t.counts?.products ?? '-'}</td>
+                      <td className="p-4 font-mono">{t.counts?.variants ?? '-'}</td>
+                      <td className="p-4 font-mono">{t.counts?.orders ?? '-'}</td>
+                      <td className="p-4 font-mono">{t.counts?.credentials ?? '-'}</td>
+                      <td className="p-4 font-mono">{t.counts?.users ?? '-'}</td>
+                      <td className="p-4 pr-6">
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={async () => {
+                              setAuditLoading(true);
+                              setAuditError(null);
+                              try {
+                                const res = await fetch(`/api/master/tenant-audit/${t.tenant_id}`, { credentials: 'include' });
+                                const data = await res.json();
+                                if (!res.ok) throw new Error(data.error || 'Audit failed');
+                                setSelectedAudit(data);
+                              } catch (err: any) {
+                                setAuditError(err.message);
+                              } finally {
+                                setAuditLoading(false);
+                              }
+                            }}
+                            className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 rounded-lg font-bold text-[10px] cursor-pointer"
+                          >
+                            Audit
+                          </button>
+                          <button
+                            onClick={() => copyToClipboard(t.tenant_id)}
+                            className="px-2 py-1 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-600 rounded-lg font-bold text-[10px] cursor-pointer"
+                            title="Copy Tenant ID"
+                          >
+                            <Copy className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards */}
+            <div className="grid grid-cols-1 gap-3 p-4 lg:hidden">
+              {auditData.map((t: any) => (
+                <div key={t.tenant_id} className="bg-gray-50/50 border border-gray-100 rounded-2xl p-4">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h4 className="font-bold text-gray-900">{t.name}</h4>
+                      <p className="text-[10px] text-gray-400 font-mono">{t.bot_username}</p>
+                      <p className="text-[10px] text-gray-400 font-mono mt-0.5">{t.tenant_id}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      {getStatusBadge(t.status)}
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        t.health === 'OK' ? 'bg-emerald-50 text-emerald-700' :
+                        t.health === 'NEED_SETUP' ? 'bg-amber-50 text-amber-700' :
+                        'bg-rose-50 text-rose-700'
+                      }`}>{t.health}</span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 mt-3 text-center text-[10px] font-semibold text-gray-500">
+                    <div className="bg-white rounded-xl p-2 border border-gray-100">
+                      <p className="font-bold text-gray-900 font-mono">{t.counts?.products ?? '-'}</p>
+                      <p>Products</p>
+                    </div>
+                    <div className="bg-white rounded-xl p-2 border border-gray-100">
+                      <p className="font-bold text-gray-900 font-mono">{t.counts?.orders ?? '-'}</p>
+                      <p>Orders</p>
+                    </div>
+                    <div className="bg-white rounded-xl p-2 border border-gray-100">
+                      <p className="font-bold text-gray-900 font-mono">{t.counts?.users ?? '-'}</p>
+                      <p>Users</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      onClick={async () => {
+                        setAuditLoading(true);
+                        setAuditError(null);
+                        try {
+                          const res = await fetch(`/api/master/tenant-audit/${t.tenant_id}`, { credentials: 'include' });
+                          const data = await res.json();
+                          if (!res.ok) throw new Error(data.error || 'Audit failed');
+                          setSelectedAudit(data);
+                        } catch (err: any) {
+                          setAuditError(err.message);
+                        } finally {
+                          setAuditLoading(false);
+                        }
+                      }}
+                      className="flex-1 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl font-bold text-[10px] cursor-pointer text-center"
+                    >
+                      Audit
+                    </button>
+                    <button
+                      onClick={() => copyToClipboard(t.tenant_id)}
+                      className="py-2 px-3 bg-gray-50 border border-gray-200 text-gray-600 rounded-xl font-bold text-[10px] cursor-pointer"
+                    >
+                      <Copy className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!auditLoading && !auditData && !auditError && (
+          <div className="bg-white border border-gray-100 rounded-3xl p-12 shadow-sm text-center">
+            <ClipboardList className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+            <p className="text-gray-500 font-semibold">Click "Refresh All" to load tenant audit data</p>
+          </div>
+        )}
+
+        {/* Audit Detail Modal */}
+        {selectedAudit && (
+          <div className="fixed inset-0 bg-black/55 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-3xl max-w-2xl w-full overflow-hidden shadow-2xl border border-gray-100 max-h-[90vh] flex flex-col">
+              <div className="p-5 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-gray-900 text-base">
+                    Tenant Audit: {selectedAudit.tenant?.name || selectedAudit.tenant?.bot_username || 'N/A'}
+                  </h3>
+                  <p className="text-[11px] text-gray-400 font-mono mt-0.5">ID: {selectedAudit.tenant?.id}</p>
+                </div>
+                <button
+                  onClick={() => setSelectedAudit(null)}
+                  className="p-1 px-2 border border-gray-200 rounded-xl bg-white text-gray-400 cursor-pointer hover:bg-gray-50"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto flex-1 text-xs font-semibold text-gray-700 space-y-5">
+                {/* Counts grid */}
+                <div>
+                  <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-indigo-600 mb-3">Table Row Counts</h4>
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
+                    {Object.entries(selectedAudit.counts || {}).map(([key, val]) => (
+                      <div key={key} className="p-3 bg-gray-50 border border-gray-100 rounded-2xl text-center">
+                        <p className="text-lg font-mono font-black text-gray-900">{val === null ? '-' : String(val)}</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5">{key.replace(/_/g, ' ')}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Setup checklist */}
+                <div>
+                  <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-indigo-600 mb-2">Setup Checklist</h4>
+                  {selectedAudit.missing_setup?.length > 0 ? (
+                    <div className="space-y-1">
+                      {selectedAudit.missing_setup.map((item: string, i: number) => (
+                        <div key={i} className="flex items-center gap-2 text-rose-700 bg-rose-50 px-3 py-1.5 rounded-xl">
+                          <X className="w-3.5 h-3.5 shrink-0" />
+                          <span className="font-bold">{item}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 px-3 py-2 rounded-xl">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span className="font-bold">All setup checks passed</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Orphans */}
+                {selectedAudit.orphan_variants?.length > 0 && (
+                  <div>
+                    <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-rose-600 mb-2">
+                      Orphan Variants ({selectedAudit.orphan_variants.length})
+                    </h4>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {selectedAudit.orphan_variants.map((v: any, i: number) => (
+                        <div key={i} className="flex items-center gap-2 text-rose-700 bg-rose-50 px-3 py-1.5 rounded-xl">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          <span className="font-mono">{v.id}: product_id {v.product_id} does not exist</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Mismatches */}
+                {selectedAudit.mismatched_variants?.length > 0 && (
+                  <div>
+                    <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-amber-600 mb-2">
+                      Mismatched Variants ({selectedAudit.mismatched_variants.length})
+                    </h4>
+                    <div className="space-y-1">
+                      {selectedAudit.mismatched_variants.map((v: any, i: number) => (
+                        <div key={i} className="flex items-center gap-2 text-amber-700 bg-amber-50 px-3 py-1.5 rounded-xl">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          <span className="font-mono">Variant {v.id}: tenant_id mismatch</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Null tenant_id rows */}
+                {selectedAudit.null_tenant_id_rows?.length > 0 && (
+                  <div>
+                    <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-rose-600 mb-2">Null tenant_id Rows</h4>
+                    <div className="space-y-1">
+                      {selectedAudit.null_tenant_id_rows.map((item: string, i: number) => (
+                        <div key={i} className="flex items-center gap-2 text-rose-700 bg-rose-50 px-3 py-1.5 rounded-xl">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          <span className="font-bold">{item}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Missing tables */}
+                {selectedAudit.table_missing?.length > 0 && (
+                  <div>
+                    <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-amber-600 mb-2">Missing Tables</h4>
+                    <div className="space-y-1">
+                      {selectedAudit.table_missing.map((tbl: string, i: number) => (
+                        <div key={i} className="flex items-center gap-2 text-amber-700 bg-amber-50 px-3 py-1.5 rounded-xl">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          <span className="font-mono">{tbl}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Source */}
+                <div className="text-[10px] text-gray-400 font-mono pt-2 border-t border-gray-100">
+                  Source: {selectedAudit.source}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

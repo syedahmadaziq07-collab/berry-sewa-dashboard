@@ -40,6 +40,7 @@ export function Navigation({ role, activeTab, setActiveTab, onLogout, tenantName
     { id: 'overview', label: 'Master Overview', icon: <LayoutDashboard className="w-5 h-5" /> },
     { id: 'tenants', label: 'Tenants List', icon: <Users className="w-5 h-5" /> },
     { id: 'create', label: 'Create Tenant', icon: <PlusIcon /> },
+    { id: 'audit', label: 'Tenant Audit', icon: <ShieldCheck className="w-5 h-5" /> },
     { id: 'monitor', label: 'Rental Monitor', icon: <ShieldAlert className="w-5 h-5" /> },
   ];
 
