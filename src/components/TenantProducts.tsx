@@ -350,7 +350,7 @@ export function TenantProducts({
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Stock Quantity</label>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Stock Limit</label>
                   <input
                     type="number"
                     required

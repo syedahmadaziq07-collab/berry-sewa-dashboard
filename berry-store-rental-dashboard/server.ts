@@ -764,9 +764,10 @@ app.patch('/api/tenant/products/:id', requireTenantAuth, async (req: Request, re
     return;
   }
 
+  const payload = productToSupabase(req.body);
   const { data, error } = await supabase
     .from('products')
-    .update(productToSupabase(req.body))
+    .update(payload)
     .eq('id', productId)
     .eq('tenant_id', tenantId)
     .select()
@@ -781,6 +782,25 @@ app.patch('/api/tenant/products/:id', requireTenantAuth, async (req: Request, re
   if (!data) {
     res.status(404).json({ error: 'Product not found' });
     return;
+  }
+
+  // Sync stock to linked product_variants if stock changed
+  if (payload.stock !== undefined) {
+    const { data: variants } = await supabase
+      .from('product_variants')
+      .select('id, stock')
+      .eq('product_id', productId)
+      .eq('tenant_id', tenantId);
+
+    if (variants && variants.length > 0) {
+      for (const v of variants) {
+        await supabase
+          .from('product_variants')
+          .update({ stock: Number(payload.stock) })
+          .eq('id', v.id);
+      }
+      console.log(`[PRODUCT_UPDATE] Synced stock=${payload.stock} to ${variants.length} variant(s) for product ${productId}`);
+    }
   }
 
   db.log(tenantId, 'PRODUCT_UPDATE', `Updated product: "${data.name}"`);
