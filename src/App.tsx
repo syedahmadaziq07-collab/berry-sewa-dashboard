@@ -264,6 +264,16 @@ export default function App() {
     }
   };
 
+  const handleDeleteVariant = async (id: string) => {
+    const res = await fetch(`/api/tenant/variants/${id}`, { method: 'DELETE', credentials: 'include' });
+    if (res.ok) {
+      loadTenantData();
+    } else {
+      const err = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
+      alert('Failed to delete variant: ' + (err.error || 'Unknown error'));
+    }
+  };
+
   const handleStockUpdate = async (id: string, quantity: number, mode: 'add' | 'set') => {
     const res = await fetch(`/api/tenant/products/${id}/stock`, {
       method: 'POST',
@@ -629,6 +639,7 @@ export default function App() {
                 onDeleteProduct={handleDeleteProduct}
                 onCreateVariant={handleCreateVariant}
                 onUpdateVariant={handleUpdateVariant}
+                onDeleteVariant={handleDeleteVariant}
                 onStockUpdate={handleStockUpdate}
                 onActivateProduct={handleActivateProduct}
                 onDeactivateProduct={handleDeactivateProduct}
@@ -699,6 +710,7 @@ export default function App() {
                   onDeleteProduct={handleDeleteProduct}
                   onCreateVariant={handleCreateVariant}
                   onUpdateVariant={handleUpdateVariant}
+                  onDeleteVariant={handleDeleteVariant}
                   onStockUpdate={handleStockUpdate}
                   onActivateProduct={handleActivateProduct}
                   onDeactivateProduct={handleDeactivateProduct}

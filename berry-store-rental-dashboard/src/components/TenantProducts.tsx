@@ -13,6 +13,7 @@ interface TenantProductsProps {
   onDeleteProduct: (id: string) => Promise<void>;
   onCreateVariant: (variant: Omit<ProductVariant, 'id' | 'tenant_id'>) => Promise<void>;
   onUpdateVariant: (id: string, updates: Partial<ProductVariant>) => Promise<void>;
+  onDeleteVariant: (id: string) => Promise<void>;
   onStockUpdate: (id: string, quantity: number, mode: 'add' | 'set') => Promise<void>;
   onActivateProduct: (id: string) => Promise<void>;
   onDeactivateProduct: (id: string) => Promise<void>;
@@ -21,7 +22,7 @@ interface TenantProductsProps {
 export function TenantProducts({ 
   products, variants, loading, 
   onCreateProduct, onUpdateProduct, onDeleteProduct,
-  onCreateVariant, onUpdateVariant,
+  onCreateVariant, onUpdateVariant, onDeleteVariant,
   onStockUpdate, onActivateProduct, onDeactivateProduct
 }: TenantProductsProps) {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -232,12 +233,23 @@ export function TenantProducts({
                       <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">Available Options/Variants</p>
                       <div className="flex flex-wrap gap-2">
                         {productVars.map(v => (
-                          <div key={v.id} className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-1.5 text-xs flex items-center space-x-2.5">
+                          <div key={v.id} className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-1.5 text-xs flex items-center space-x-2">
                             <span className="font-semibold text-gray-800">{v.name}</span>
-                            <span className="text-gray-400 font-medium">|</span>
+                            <span className="text-gray-300 font-medium">|</span>
                             <span className="font-mono font-bold text-gray-900">RM{v.price.toFixed(2)}</span>
-                            <span className="text-gray-400 font-medium">|</span>
-                            <span className={`font-mono font-bold ${v.stock === 0 ? 'text-rose-600' : 'text-gray-600'}`}>{v.stock} in stock</span>
+                            <span className="text-gray-300 font-medium">|</span>
+                            <span className={`font-mono font-bold ${v.stock === 0 ? 'text-rose-600' : 'text-gray-600'}`}>
+                              {v.stock === 0 ? 'Out of stock' : `${v.stock} in stock`}
+                            </span>
+                            <button
+                              onClick={() => {
+                                if (confirm(`Delete variant "${v.name}"?`)) onDeleteVariant(v.id);
+                              }}
+                              className="ml-1 p-1 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 cursor-pointer"
+                              title="Delete variant"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
                           </div>
                         ))}
                       </div>

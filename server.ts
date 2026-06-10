@@ -1093,6 +1093,38 @@ app.post('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Re
     return;
   }
 
+  // Check if product has only one default variant with stock 0 — update it instead of creating duplicate
+  const { data: existingVariants } = await supabase
+    .from('product_variants')
+    .select('id, stock')
+    .eq('product_id', Number(product_id))
+    .eq('tenant_id', tenantId);
+
+  if (existingVariants && existingVariants.length === 1 && Number(existingVariants[0].stock) === 0) {
+    // Update the default variant instead of inserting a new one
+    const defaultVariantId = existingVariants[0].id;
+    console.log('[VARIANT_CREATE] Replacing default variant (id:', defaultVariantId, ') — single variant with stock 0');
+
+    const { data: updated, error: updateError } = await supabase
+      .from('product_variants')
+      .update(variantPayload)
+      .eq('id', defaultVariantId)
+      .eq('tenant_id', tenantId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('[VARIANT_CREATE] Supabase update error:', JSON.stringify(updateError));
+      res.status(500).json({ error: `Supabase variant update failed: ${updateError.message}` });
+      return;
+    }
+
+    console.log('[VARIANT_CREATE] Supabase update success, variant id:', updated.id);
+    db.log(tenantId, 'VARIANT_CREATE', `Updated default variant to "${variantPayload.variant_name}" for product "${product.name}"`);
+    res.json(mapVariantRow(updated));
+    return;
+  }
+
   const { data, error } = await supabase
     .from('product_variants')
     .insert(variantPayload)
@@ -1109,6 +1141,54 @@ app.post('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Re
   console.log('[VARIANT_CREATE] Supabase returned data:', JSON.stringify(data));
   db.log(tenantId, 'VARIANT_CREATE', `Created variant "${variantPayload.variant_name}" for product "${product.name}"`);
   res.json(mapVariantRow(data));
+});
+
+// DELETE /api/tenant/variants/:id
+app.delete('/api/tenant/variants/:id', requireTenantAuth, async (req: Request, res: Response) => {
+  const tenantId = (req as any).tenant_id;
+  const variantId = Number(req.params.id);
+
+  if (!supabase) {
+    const lists = db.getVariants(tenantId);
+    const exists = lists.find((v: any) => v.id === String(variantId));
+    if (!exists) {
+      res.status(404).json({ error: 'Variant not found' });
+      return;
+    }
+    db.deleteVariant(String(variantId), tenantId);
+    db.log(tenantId, 'VARIANT_DELETE', `Deleted variant ID: ${variantId}`);
+    res.json({ message: 'Variant deleted' });
+    return;
+  }
+
+  // Verify variant exists and belongs to this tenant
+  const { data: variant } = await supabase
+    .from('product_variants')
+    .select('id, variant_name')
+    .eq('id', variantId)
+    .eq('tenant_id', tenantId)
+    .single();
+
+  if (!variant) {
+    res.status(404).json({ error: 'Variant not found' });
+    return;
+  }
+
+  const { error } = await supabase
+    .from('product_variants')
+    .delete()
+    .eq('id', variantId)
+    .eq('tenant_id', tenantId);
+
+  if (error) {
+    console.error('[VARIANT_DELETE] Supabase error:', error.message);
+    res.status(500).json({ error: `Supabase delete failed: ${error.message}` });
+    return;
+  }
+
+  console.log('[VARIANT_DELETE] Deleted variant:', variantId);
+  db.log(tenantId, 'VARIANT_DELETE', `Deleted variant "${variant.variant_name}" [ID: ${variantId}]`);
+  res.json({ message: 'Variant deleted' });
 });
 
 // PATCH /api/tenant/variants/:id
