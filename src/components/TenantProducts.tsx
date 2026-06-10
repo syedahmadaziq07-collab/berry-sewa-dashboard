@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Product, ProductVariant } from '../types';
-import { Plus, Edit2, Trash2, Layers, Check, X, ShieldAlert, Minus, Power, PowerOff, Package } from 'lucide-react';
+import { Plus, Edit2, Trash2, Layers, X, ShieldAlert, Power, PowerOff, Package, Save } from 'lucide-react';
 import { TableSkeleton } from './Skeleton';
 import { EmptyState } from './EmptyState';
 
@@ -42,9 +42,15 @@ export function TenantProducts({
   const [varPrice, setVarPrice] = useState('5.00');
   const [varStock, setVarStock] = useState('10');
 
-  // Stock modal
+  // Stock modals
   const [stockModal, setStockModal] = useState<{ product: Product; mode: 'add' | 'set' } | null>(null);
   const [stockQty, setStockQty] = useState('');
+
+  // Manage Stock modal
+  const [manageStockProduct, setManageStockProduct] = useState<Product | null>(null);
+  const [manageStockAddQty, setManageStockAddQty] = useState('');
+  const [manageStockSetQty, setManageStockSetQty] = useState('');
+  const [manageStockLoading, setManageStockLoading] = useState(false);
 
   const openNewProductForm = () => {
     setEditingProduct(null);
@@ -146,7 +152,7 @@ export function TenantProducts({
       ) : products.length === 0 ? (
         <EmptyState 
           title="Catalog is empty" 
-          description="Create your first digital item. Your customers will see changes in their Telegram bot instantly!"
+          description="Create a product first to manage stock. Your customers will see changes in their Telegram bot instantly!"
           actionLabel="Create Product"
           onAction={openNewProductForm}
         />
@@ -190,32 +196,32 @@ export function TenantProducts({
                   </div>
 
                   {/* Stock action buttons */}
-                  <div className="flex flex-wrap items-center gap-1.5 pt-2">
+                  <div className="flex flex-wrap items-center gap-2 pt-2">
                     <button
                       onClick={() => { setStockModal({ product: p, mode: 'add' }); setStockQty(''); }}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 rounded-lg font-bold text-[10px] cursor-pointer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 rounded-lg font-bold text-xs cursor-pointer"
                     >
-                      <Plus className="w-3 h-3" /> Add Stock
+                      <Plus className="w-3.5 h-3.5" /> Add Stock
                     </button>
                     <button
                       onClick={() => { setStockModal({ product: p, mode: 'set' }); setStockQty(String(p.stock)); }}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded-lg font-bold text-[10px] cursor-pointer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded-lg font-bold text-xs cursor-pointer"
                     >
-                      <Package className="w-3 h-3" /> Set Stock
+                      <Package className="w-3.5 h-3.5" /> Set Stock
                     </button>
                     {p.active ? (
                       <button
                         onClick={() => onDeactivateProduct(p.id)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded-lg font-bold text-[10px] cursor-pointer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded-lg font-bold text-xs cursor-pointer"
                       >
-                        <PowerOff className="w-3 h-3" /> Deactivate
+                        <PowerOff className="w-3.5 h-3.5" /> Deactivate
                       </button>
                     ) : (
                       <button
                         onClick={() => onActivateProduct(p.id)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 rounded-lg font-bold text-[10px] cursor-pointer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 rounded-lg font-bold text-xs cursor-pointer"
                       >
-                        <Power className="w-3 h-3" /> Activate
+                        <Power className="w-3.5 h-3.5" /> Activate
                       </button>
                     )}
                   </div>
@@ -241,6 +247,18 @@ export function TenantProducts({
 
                 {/* Catalog Controls */}
                 <div className="flex flex-row md:flex-col justify-end gap-2.5 shrink-0 pt-4 md:pt-0 border-t border-gray-50 md:border-none">
+                  <button
+                    onClick={() => {
+                      setManageStockProduct(p);
+                      setManageStockAddQty('');
+                      setManageStockSetQty(String(p.stock));
+                      setManageStockLoading(false);
+                    }}
+                    className="flex items-center justify-center space-x-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 px-3.5 py-2 rounded-full font-bold text-xs cursor-pointer"
+                  >
+                    <Package className="w-3.5 h-3.5" />
+                    <span>Manage Stock</span>
+                  </button>
                   <button
                     onClick={() => {
                       setSelectedProductForVariant(p);
@@ -445,6 +463,140 @@ export function TenantProducts({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Stock Modal (unified) */}
+      {manageStockProduct && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full overflow-hidden shadow-2xl border border-gray-100 p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-gray-950 text-base">Manage Stock</h3>
+                <p className="text-[11px] text-gray-400 mt-0.5">{manageStockProduct.name}</p>
+              </div>
+              <button
+                onClick={() => setManageStockProduct(null)}
+                className="p-1 px-2 border border-gray-200 rounded-xl bg-white hover:bg-gray-100 text-gray-400 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Current Stock display */}
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4 text-center">
+              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider">Current Stock</p>
+              <p className={`text-3xl font-bold font-mono mt-1 ${manageStockProduct.stock === 0 ? 'text-red-500' : 'text-gray-900'}`}>
+                {manageStockProduct.stock}
+              </p>
+            </div>
+
+            {/* Add Stock */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-gray-700">Add Stock</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="Quantity to add"
+                  value={manageStockAddQty}
+                  onChange={(e) => setManageStockAddQty(e.target.value)}
+                  className="flex-1 px-3.5 py-2 border border-gray-200 rounded-xl text-sm font-mono"
+                />
+                <button
+                  disabled={manageStockLoading}
+                  onClick={async () => {
+                    const qty = parseInt(manageStockAddQty);
+                    if (isNaN(qty) || qty <= 0) return;
+                    setManageStockLoading(true);
+                    try {
+                      await onStockUpdate(manageStockProduct.id, qty, 'add');
+                      setManageStockProduct(null);
+                    } catch {
+                      setManageStockLoading(false);
+                    }
+                  }}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white text-xs font-bold rounded-full cursor-pointer"
+                >
+                  {manageStockLoading ? '...' : <><Save className="w-3 h-3 inline mr-1" />Add</>}
+                </button>
+              </div>
+              {manageStockAddQty && !isNaN(parseInt(manageStockAddQty)) && parseInt(manageStockAddQty) > 0 && (
+                <p className="text-[10px] text-gray-400">
+                  Result: <span className="font-bold text-gray-700">{manageStockProduct.stock + parseInt(manageStockAddQty)}</span>
+                </p>
+              )}
+            </div>
+
+            {/* Set Stock */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-gray-700">Set Stock (overwrite)</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="New stock quantity"
+                  value={manageStockSetQty}
+                  onChange={(e) => setManageStockSetQty(e.target.value)}
+                  className="flex-1 px-3.5 py-2 border border-gray-200 rounded-xl text-sm font-mono"
+                />
+                <button
+                  disabled={manageStockLoading}
+                  onClick={async () => {
+                    const qty = parseInt(manageStockSetQty);
+                    if (isNaN(qty) || qty < 0) return;
+                    setManageStockLoading(true);
+                    try {
+                      await onStockUpdate(manageStockProduct.id, qty, 'set');
+                      setManageStockProduct(null);
+                    } catch {
+                      setManageStockLoading(false);
+                    }
+                  }}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-xs font-bold rounded-full cursor-pointer"
+                >
+                  {manageStockLoading ? '...' : <><Save className="w-3 h-3 inline mr-1" />Set</>}
+                </button>
+              </div>
+            </div>
+
+            {/* Activate / Deactivate */}
+            <div className="pt-2 border-t border-gray-50">
+              {manageStockProduct.active || manageStockProduct.active === undefined || manageStockProduct.active === null ? (
+                <button
+                  disabled={manageStockLoading}
+                  onClick={async () => {
+                    setManageStockLoading(true);
+                    try {
+                      await onDeactivateProduct(manageStockProduct.id);
+                      setManageStockProduct(null);
+                    } catch {
+                      setManageStockLoading(false);
+                    }
+                  }}
+                  className="w-full py-2.5 bg-amber-50 hover:bg-amber-100 disabled:bg-gray-50 border border-amber-200 text-amber-700 rounded-xl font-bold text-xs cursor-pointer"
+                >
+                  <PowerOff className="w-4 h-4 inline mr-1.5" />Deactivate Product
+                </button>
+              ) : (
+                <button
+                  disabled={manageStockLoading}
+                  onClick={async () => {
+                    setManageStockLoading(true);
+                    try {
+                      await onActivateProduct(manageStockProduct.id);
+                      setManageStockProduct(null);
+                    } catch {
+                      setManageStockLoading(false);
+                    }
+                  }}
+                  className="w-full py-2.5 bg-emerald-50 hover:bg-emerald-100 disabled:bg-gray-50 border border-emerald-200 text-emerald-700 rounded-xl font-bold text-xs cursor-pointer"
+                >
+                  <Power className="w-4 h-4 inline mr-1.5" />Activate Product
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
