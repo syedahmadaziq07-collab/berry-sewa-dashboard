@@ -750,6 +750,10 @@ app.get('/api/tenant/products', requireTenantAuth, async (req: Request, res: Res
   const mapped = (products || []).map(mapProductRow);
   const mappedVars = (variants || []).map(mapVariantRow);
 
+  const activeCount = mapped.filter((p: any) => p.active !== false).length;
+  const inactiveCount = mapped.filter((p: any) => p.active === false).length;
+  console.log(`[PRODUCT_LIST] tenant=${tenantId} total=${mapped.length} active=${activeCount} inactive=${inactiveCount}`);
+
   // Attach linked variants to each product
   const result = mapped.map((p: any) => ({
     ...p,

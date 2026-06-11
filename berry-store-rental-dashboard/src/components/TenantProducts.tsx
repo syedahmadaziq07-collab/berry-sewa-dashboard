@@ -47,6 +47,12 @@ export function TenantProducts({
   const [stockModal, setStockModal] = useState<{ product: Product; mode: 'add' | 'set' } | null>(null);
   const [stockQty, setStockQty] = useState('');
 
+  // Inactive products toggle
+  const [showInactive, setShowInactive] = useState(false);
+
+  const inactiveCount = products.filter(p => p.active === false).length;
+  const visibleProducts = showInactive ? products : products.filter(p => p.active !== false);
+
   // Manage Stock modal
   const [manageStockProduct, setManageStockProduct] = useState<Product | null>(null);
   const [manageStockAddQty, setManageStockAddQty] = useState('');
@@ -139,13 +145,27 @@ export function TenantProducts({
           <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Products Catalog</h2>
           <p className="text-sm text-gray-500 mt-1">Configure bot store products, variants and automatic credential delivery options.</p>
         </div>
-        <button
-          onClick={openNewProductForm}
-          className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-4 py-2.5 rounded-full transition-all shadow-xs hover:shadow-md cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Product</span>
-        </button>
+        <div className="flex items-center gap-3">
+          {inactiveCount > 0 && (
+            <button
+              onClick={() => setShowInactive(!showInactive)}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold cursor-pointer transition-all ${
+                showInactive 
+                  ? 'bg-gray-800 text-white border border-gray-700' 
+                  : 'bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200'
+              }`}
+            >
+              {showInactive ? 'Hide Inactive' : `Show Inactive (${inactiveCount})`}
+            </button>
+          )}
+          <button
+            onClick={openNewProductForm}
+            className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-4 py-2.5 rounded-full transition-all shadow-xs hover:shadow-md cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Product</span>
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -159,7 +179,7 @@ export function TenantProducts({
         />
       ) : (
         <div className="grid grid-cols-1 gap-6">
-          {products.map((p) => {
+          {visibleProducts.map((p) => {
             const productVars = variants.filter(v => v.product_id === p.id);
             return (
               <div key={p.id} className="bg-white border border-gray-100 rounded-[24px] p-6 shadow-sm relative overflow-hidden flex flex-col md:flex-row justify-between gap-6 hover:shadow-md transition-all">
@@ -178,7 +198,7 @@ export function TenantProducts({
                     {p.active ? (
                       <span className="text-[10px] bg-emerald-50 border border-emerald-100 text-emerald-700 px-2.5 py-0.5 rounded-full font-bold">Active</span>
                     ) : (
-                      <span className="text-[10px] bg-gray-100 border border-gray-200 text-gray-500 px-2.5 py-0.5 rounded-full font-bold">Deactivated</span>
+                      <span className="text-[10px] bg-rose-50 border border-rose-200 text-rose-600 px-2.5 py-0.5 rounded-full font-bold">Inactive / Hidden from Shop</span>
                     )}
                   </div>
 

@@ -260,7 +260,7 @@ export default function App() {
     const data = await res.json().catch(() => ({ ok: false, error: `Server error (${res.status})` }));
     if (res.ok && data.ok) {
       if (data.mode === 'deactivated') {
-        alert(data.message || 'This product has existing orders, so it has been deactivated instead of deleted.');
+        alert('This product has existing orders, so it was deactivated and hidden from the shop.');
       }
       loadTenantData();
     } else {
