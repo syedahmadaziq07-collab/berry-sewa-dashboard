@@ -15,6 +15,7 @@ import { TenantOrders } from './components/TenantOrders';
 import { TenantSettings } from './components/TenantSettings';
 import { TenantCredentials } from './components/TenantCredentials';
 import { MasterViews } from './components/MasterViews';
+import { TenantBotHealth } from './components/TenantBotHealth';
 
 export default function App() {
   // Session details mapping state
@@ -254,13 +255,16 @@ export default function App() {
   };
 
   const handleDeleteProduct = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this listing product? This can't be undone.")) return;
+    if (!confirm("Are you sure you want to delete this product? If it has orders, it will be deactivated instead.")) return;
     const res = await fetch(`/api/tenant/products/${id}`, { method: 'DELETE', credentials: 'include' });
-    if (res.ok) {
+    const data = await res.json().catch(() => ({ ok: false, error: `Server error (${res.status})` }));
+    if (res.ok && data.ok) {
+      if (data.mode === 'deactivated') {
+        alert(data.message || 'This product has existing orders, so it has been deactivated instead of deleted.');
+      }
       loadTenantData();
     } else {
-      const err = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
-      alert('Failed to delete product: ' + (err.error || 'Unknown error'));
+      alert('Failed to delete product: ' + (data.error || 'Unknown error'));
     }
   };
 
@@ -824,48 +828,7 @@ export default function App() {
               </div>
             )}
 
-            {activeTab === 'health' && (
-              /* HEARTBEAT DIAGNOSTIC CENTER */
-              <div className="space-y-6 animate-fade-in text-xs font-semibold text-gray-700">
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Daemon Loop heartbeat diagnostics</h2>
-                  <p className="text-sm text-gray-500 mt-1">Audit active webhook nodes and health checklists representing your automated shop bot.</p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Webhook diagnostics */}
-                  <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-xs space-y-4">
-                    <h3 className="font-bold text-gray-900 text-base">Daemon Hook checks</h3>
-                    <div className="flex items-center space-x-3.5 bg-gray-50 p-4 border border-gray-100 rounded-2xl">
-                      <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
-                      <div>
-                        <p className="text-gray-900 font-bold">Node status: ONLINE</p>
-                        <p className="text-[10px] text-gray-400 mt-0.5">Last heartbeat parsed 3 minutes ago.</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Checklist status */}
-                  <div className="bg-white border border-gray-105-80 rounded-3xl p-6 shadow-xs space-y-4">
-                    <h3 className="font-bold text-gray-950 text-base">Store Setup progress checks</h3>
-                    <div className="space-y-3 text-xs">
-                      <div className="flex items-center justify-between">
-                        <span>• Catalog has active products</span>
-                        <span className="text-emerald-600 font-bold">Passed</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span>• Custom payments QR loaded</span>
-                        <span className="text-emerald-600 font-bold">Passed</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span>• Deliverables credentials stock available</span>
-                        <span className="text-emerald-500 font-bold">Passed</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+            {activeTab === 'health' && <TenantBotHealth onNavigate={setActiveTab} />}
           </>
         ) : (
           /* MASTER OWNER VIEWS */

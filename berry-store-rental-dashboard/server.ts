@@ -587,6 +587,144 @@ function variantToSupabase(body: any): any {
   return p;
 }
 
+// GET /api/tenant/bot-health
+app.get('/api/tenant/bot-health', requireTenantAuth, async (req: Request, res: Response) => {
+  const tenantId = (req as any).tenant_id;
+  const warnings: string[] = [];
+  const errors: string[] = [];
+
+  try {
+    // 1. Tenant record
+    const tenant = db.getTenant(tenantId);
+    const tenantInfo = {
+      tenant_id: tenantId,
+      exists: !!tenant,
+      status: tenant?.status || 'unknown',
+      rent_end: tenant?.rent_end || null,
+      active: tenant?.status === 'active',
+    };
+    if (!tenant) errors.push('Tenant record not found');
+    else if (tenant.status !== 'active') errors.push(`Tenant status is "${tenant.status}"`);
+
+    // Fetch all Supabase data in parallel
+    let supabaseSettings: any[] | null = null;
+    let supabaseProducts: any[] | null = null;
+    let supabaseVariants: any[] | null = null;
+    let supabaseCredentials: any[] | null = null;
+    let nullTenantProducts = 0;
+    let tenantIdMismatchVariants = 0;
+
+    if (supabase) {
+      const results = await Promise.all([
+        supabaseGet(tenantId, 'bot_settings'),
+        supabaseGet(tenantId, 'products'),
+        supabaseGet(tenantId, 'product_variants'),
+        supabaseGet(tenantId, 'credentials'),
+        supabase.from('products').select('id', { count: 'exact', head: true }).is('tenant_id', null),
+        supabase.from('product_variants').select('id', { count: 'exact', head: true }).neq('tenant_id', tenantId),
+      ]);
+      supabaseSettings = results[0];
+      supabaseProducts = results[1];
+      supabaseVariants = results[2];
+      supabaseCredentials = results[3];
+      nullTenantProducts = (results[4] as any)?.count || 0;
+      tenantIdMismatchVariants = (results[5] as any)?.count || 0;
+    }
+
+    // 2. Bot Settings
+    const botSettings: any[] = supabaseSettings || db.getSettings(tenantId);
+    const qrUrl = botSettings.find((s: any) => s.key === 'payment_qr_url')?.value || '';
+    const qrFileId = botSettings.find((s: any) => s.key === 'payment_qr_file_id')?.value || '';
+    const bannerUrl = botSettings.find((s: any) => s.key === 'banner_url')?.value || '';
+    const bannerFileId = botSettings.find((s: any) => s.key === 'banner_file_id')?.value || '';
+
+    if (botSettings.length === 0) warnings.push('No bot_settings found — store not configured');
+    if (!qrUrl && !qrFileId) warnings.push('Payment QR not configured');
+    if (!bannerUrl && !bannerFileId) warnings.push('Shop banner not configured');
+
+    // 3. Products
+    const products: any[] = supabaseProducts ? supabaseProducts.map(mapProductRow) : db.getProducts(tenantId);
+    const activeProducts = products.filter((p: any) => p.active !== false);
+    const latestProducts = products.slice(-5).reverse();
+
+    if (nullTenantProducts > 0) errors.push(`${nullTenantProducts} products with null tenant_id`);
+    if (products.length === 0) errors.push('No products found');
+    else if (activeProducts.length === 0) errors.push('No active products');
+
+    // 4. Product Variants
+    const variants: any[] = supabaseVariants ? supabaseVariants.map(mapVariantRow) : db.getVariants(tenantId);
+    const variantsWithStock = variants.filter((v: any) => (v.stock || 0) > 0);
+    const zeroStockVariants = variants.filter((v: any) => !v.stock || v.stock === 0);
+
+    let orphanCount = 0;
+    const productIds = new Set(products.map((p: any) => p.id));
+    if (supabaseVariants) {
+      orphanCount = supabaseVariants.filter((v: any) => !productIds.has(v.product_id)).length;
+    } else {
+      orphanCount = variants.filter((v: any) => !productIds.has(v.product_id)).length;
+    }
+
+    if (tenantIdMismatchVariants > 0) errors.push(`${tenantIdMismatchVariants} variants with mismatched tenant_id`);
+    if (variants.length === 0) errors.push('No variants found');
+    else if (variantsWithStock.length === 0) errors.push('No variants with stock > 0');
+    if (orphanCount > 0) errors.push(`${orphanCount} orphan variants (no matching product)`);
+
+    // 5. Credentials
+    const creds: any[] = supabaseCredentials || db.getCredentials(tenantId);
+    const availableCreds = creds.filter((c: any) => !c.is_used).length;
+
+    // 6. Compatibility status
+    let compatibility: 'OK' | 'NEED_SETUP' | 'ERROR' = 'OK';
+    if (errors.length > 0) {
+      compatibility = 'ERROR';
+    } else if (warnings.length > 0 || !qrUrl || !bannerUrl || products.length === 0 || activeProducts.length === 0 || variantsWithStock.length === 0) {
+      compatibility = 'NEED_SETUP';
+    }
+
+    console.log(`[BOT_HEALTH] tenant_id=${tenantId} status=${compatibility} warnings=${warnings.length} errors=${errors.length}`);
+    if (warnings.length > 0) console.log(`[BOT_HEALTH] warnings:`, warnings.join('; '));
+    if (errors.length > 0) console.log(`[BOT_HEALTH] errors:`, errors.join('; '));
+
+    res.json({
+      tenant: tenantInfo,
+      bot_settings: {
+        total_count: botSettings.length,
+        payment_qr_url_configured: !!qrUrl,
+        banner_url_configured: !!bannerUrl,
+        payment_qr_file_id: qrFileId,
+        banner_file_id: bannerFileId,
+      },
+      products: {
+        total_count: products.length,
+        active_count: activeProducts.length,
+        latest: latestProducts.map((p: any) => ({ id: p.id, name: p.name, price: p.price, active: p.active })),
+        null_tenant_id_count: nullTenantProducts,
+      },
+      product_variants: {
+        total_count: variants.length,
+        with_stock_count: variantsWithStock.length,
+        tenant_id_mismatch_count: tenantIdMismatchVariants,
+        orphan_count: orphanCount,
+        zero_stock_count: zeroStockVariants.length,
+      },
+      credentials: {
+        total_count: creds.length,
+        available_count: availableCreds,
+      },
+      compatibility,
+      warnings,
+      errors,
+    });
+  } catch (err: any) {
+    console.error(`[BOT_HEALTH] error for tenant_id=${tenantId}:`, err.message || err);
+    res.status(500).json({
+      compatibility: 'ERROR',
+      errors: [err.message || 'Internal error during health check'],
+      warnings: [],
+    });
+  }
+});
+
 // GET /api/tenant/products
 app.get('/api/tenant/products', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
@@ -812,32 +950,100 @@ app.delete('/api/tenant/products/:id', requireTenantAuth, async (req: Request, r
   const tenantId = (req as any).tenant_id;
   const productId = Number(req.params.id);
 
-  if (!supabase) {
-    const product = db.getProductById(String(productId), tenantId);
-    if (!product) {
-      res.status(404).json({ error: 'Product not found' });
+  try {
+    if (!supabase) {
+      const product = db.getProductById(String(productId), tenantId);
+      if (!product) {
+        res.status(404).json({ ok: false, error: 'Product not found' });
+        return;
+      }
+      const orderCount = db.getOrders(tenantId).filter((o: any) => o.product_id === String(productId)).length;
+
+      if (orderCount > 0) {
+        db.updateProduct(String(productId), tenantId, { active: false, status: 'inactive' });
+        db.log(tenantId, 'PRODUCT_DELETE', `Deactivated product: "${product.name}" (has ${orderCount} orders)`);
+        console.log(`[PRODUCT_DELETE] tenant_id=${tenantId} product_id=${productId} orders_count=${orderCount} action=deactivated`);
+        res.json({ ok: true, mode: 'deactivated', message: 'Product has existing orders, so it was deactivated instead of deleted.' });
+        return;
+      }
+
+      db.deleteProduct(String(productId), tenantId);
+      db.log(tenantId, 'PRODUCT_DELETE', `Hard deleted product: "${product.name}"`);
+      console.log(`[PRODUCT_DELETE] tenant_id=${tenantId} product_id=${productId} orders_count=0 action=hard_deleted`);
+      res.json({ ok: true, mode: 'deleted' });
       return;
     }
-    db.deleteProduct(String(productId), tenantId);
-    db.log(tenantId, 'PRODUCT_DELETE', `Deleted product: "${product.name}" and cleared associated listings`);
-    res.json({ message: 'Product deleted' });
-    return;
+
+    // Supabase path
+
+    // 1. Check orders count for this product
+    const { count: orderCount, error: countError } = await supabase
+      .from('orders')
+      .select('*', { count: 'exact', head: true })
+      .eq('product_id', productId)
+      .eq('tenant_id', tenantId);
+
+    if (countError) {
+      console.error('[PRODUCT_DELETE] Supabase orders count error:', countError.message);
+      res.status(500).json({ ok: false, error: `Failed to check orders: ${countError.message}`, details: countError });
+      return;
+    }
+
+    if (orderCount && orderCount > 0) {
+      // 2a. Has orders → soft delete / deactivate
+      const { error: deactivateError } = await supabase
+        .from('products')
+        .update({ is_active: false, status: 'inactive' })
+        .eq('id', productId)
+        .eq('tenant_id', tenantId);
+
+      if (deactivateError) {
+        console.error('[PRODUCT_DELETE] Supabase deactivate error:', deactivateError.message);
+        res.status(500).json({ ok: false, error: `Failed to deactivate product: ${deactivateError.message}`, details: deactivateError });
+        return;
+      }
+
+      db.log(tenantId, 'PRODUCT_DELETE', `Deactivated product ID: ${productId} (has ${orderCount} orders)`);
+      console.log(`[PRODUCT_DELETE] tenant_id=${tenantId} product_id=${productId} orders_count=${orderCount} action=deactivated`);
+      res.json({ ok: true, mode: 'deactivated', message: 'Product has existing orders, so it was deactivated instead of deleted.' });
+      return;
+    }
+
+    // 2b. No orders → hard delete
+
+    // Delete linked variants first
+    const { error: varDeleteError } = await supabase
+      .from('product_variants')
+      .delete()
+      .eq('product_id', productId)
+      .eq('tenant_id', tenantId);
+
+    if (varDeleteError) {
+      console.error('[PRODUCT_DELETE] Supabase variant delete error:', varDeleteError.message);
+      res.status(500).json({ ok: false, error: `Failed to delete variants: ${varDeleteError.message}`, details: varDeleteError });
+      return;
+    }
+
+    // Delete product
+    const { error: prodDeleteError } = await supabase
+      .from('products')
+      .delete()
+      .eq('id', productId)
+      .eq('tenant_id', tenantId);
+
+    if (prodDeleteError) {
+      console.error('[PRODUCT_DELETE] Supabase product delete error:', prodDeleteError.message);
+      res.status(500).json({ ok: false, error: `Failed to delete product: ${prodDeleteError.message}`, details: prodDeleteError });
+      return;
+    }
+
+    db.log(tenantId, 'PRODUCT_DELETE', `Hard deleted product ID: ${productId}`);
+    console.log(`[PRODUCT_DELETE] tenant_id=${tenantId} product_id=${productId} orders_count=0 action=hard_deleted`);
+    res.json({ ok: true, mode: 'deleted' });
+  } catch (err: any) {
+    console.error(`[PRODUCT_DELETE] error for tenant_id=${tenantId}:`, err.message || err);
+    res.status(500).json({ ok: false, error: err.message || 'Internal error during product deletion', details: err });
   }
-
-  const { error } = await supabase
-    .from('products')
-    .delete()
-    .eq('id', productId)
-    .eq('tenant_id', tenantId);
-
-  if (error) {
-    console.error('[PRODUCT_DELETE] Supabase error:', error.message);
-    res.status(500).json({ error: `Supabase delete failed: ${error.message}` });
-    return;
-  }
-
-  db.log(tenantId, 'PRODUCT_DELETE', `Deleted product ID: ${productId}`);
-  res.json({ message: 'Product deleted' });
 });
 
 // POST /api/tenant/products/:id/stock
