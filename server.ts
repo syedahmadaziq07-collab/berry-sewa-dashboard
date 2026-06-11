@@ -964,10 +964,10 @@ app.delete('/api/tenant/products/:id', requireTenantAuth, async (req: Request, r
       const orderCount = db.getOrders(tenantId).filter((o: any) => o.product_id === String(productId)).length;
 
       if (orderCount > 0) {
-        db.updateProduct(String(productId), tenantId, { active: false, status: 'inactive' });
-        db.log(tenantId, 'PRODUCT_DELETE', `Deactivated product: "${product.name}" (has ${orderCount} orders)`);
-        console.log(`[PRODUCT_DELETE] tenant_id=${tenantId} product_id=${productId} orders_count=${orderCount} action=deactivated`);
-        res.json({ ok: true, mode: 'deactivated', message: 'Product has existing orders, so it was deactivated instead of deleted.' });
+        db.updateProduct(String(productId), tenantId, { active: false, status: 'deleted' });
+        db.log(tenantId, 'PRODUCT_DELETE', `Soft deleted product: "${product.name}" (has ${orderCount} orders)`);
+        console.log(`[PRODUCT_DELETE] tenant_id=${tenantId} product_id=${productId} orders_count=${orderCount} action=soft_deleted`);
+        res.json({ ok: true, mode: 'soft_deleted', message: 'Product has existing orders, so it was deleted from the dashboard and hidden from the bot, while order history was kept safe.' });
         return;
       }
 
@@ -994,22 +994,22 @@ app.delete('/api/tenant/products/:id', requireTenantAuth, async (req: Request, r
     }
 
     if (orderCount && orderCount > 0) {
-      // 2a. Has orders → soft delete / deactivate
-      const { error: deactivateError } = await supabase
+      // 2a. Has orders → soft delete (hidden, never shown again in dashboard)
+      const { error: softDeleteError } = await supabase
         .from('products')
-        .update({ is_active: false, status: 'inactive' })
+        .update({ is_active: false, status: 'deleted' })
         .eq('id', productId)
         .eq('tenant_id', tenantId);
 
-      if (deactivateError) {
-        console.error('[PRODUCT_DELETE] Supabase deactivate error:', deactivateError.message);
-        res.status(500).json({ ok: false, error: `Failed to deactivate product: ${deactivateError.message}`, details: deactivateError });
+      if (softDeleteError) {
+        console.error('[PRODUCT_DELETE] Supabase soft delete error:', softDeleteError.message);
+        res.status(500).json({ ok: false, error: `Failed to soft delete product: ${softDeleteError.message}`, details: softDeleteError });
         return;
       }
 
-      db.log(tenantId, 'PRODUCT_DELETE', `Deactivated product ID: ${productId} (has ${orderCount} orders)`);
-      console.log(`[PRODUCT_DELETE] tenant_id=${tenantId} product_id=${productId} orders_count=${orderCount} action=deactivated`);
-      res.json({ ok: true, mode: 'deactivated', message: 'Product has existing orders, so it was deactivated instead of deleted.' });
+      db.log(tenantId, 'PRODUCT_DELETE', `Soft deleted product ID: ${productId} (has ${orderCount} orders)`);
+      console.log(`[PRODUCT_DELETE] tenant_id=${tenantId} product_id=${productId} orders_count=${orderCount} action=soft_deleted`);
+      res.json({ ok: true, mode: 'soft_deleted', message: 'Product has existing orders, so it was deleted from the dashboard and hidden from the bot, while order history was kept safe.' });
       return;
     }
 

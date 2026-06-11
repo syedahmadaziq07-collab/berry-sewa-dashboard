@@ -29,6 +29,7 @@ export interface Product {
   stock: number;
   auto_delivery: boolean;
   active: boolean;
+  status?: string;
 }
 
 export interface ProductVariant {

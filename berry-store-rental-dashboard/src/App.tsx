@@ -255,12 +255,12 @@ export default function App() {
   };
 
   const handleDeleteProduct = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this product? If it has orders, it will be deactivated instead.")) return;
+    if (!confirm("Are you sure you want to delete this product?")) return;
     const res = await fetch(`/api/tenant/products/${id}`, { method: 'DELETE', credentials: 'include' });
     const data = await res.json().catch(() => ({ ok: false, error: `Server error (${res.status})` }));
     if (res.ok && data.ok) {
-      if (data.mode === 'deactivated') {
-        alert('This product has existing orders, so it was deactivated and hidden from the shop.');
+      if (data.mode === 'soft_deleted') {
+        alert('Product has existing orders, so it was deleted from the dashboard and hidden from the bot, while order history was kept safe.');
       }
       loadTenantData();
     } else {

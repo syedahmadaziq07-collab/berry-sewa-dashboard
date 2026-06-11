@@ -50,8 +50,11 @@ export function TenantProducts({
   // Inactive products toggle
   const [showInactive, setShowInactive] = useState(false);
 
-  const inactiveCount = products.filter(p => p.active === false).length;
-  const visibleProducts = showInactive ? products : products.filter(p => p.active !== false);
+  const nonDeleted = products.filter(p => p.status !== 'deleted');
+  const activeProducts = nonDeleted.filter(p => p.active === true && (p.status === 'active' || !p.status));
+  const inactiveProducts = nonDeleted.filter(p => p.active === false && p.status === 'inactive');
+  const inactiveCount = inactiveProducts.length;
+  const visibleProducts = showInactive ? inactiveProducts : activeProducts;
 
   // Manage Stock modal
   const [manageStockProduct, setManageStockProduct] = useState<Product | null>(null);
