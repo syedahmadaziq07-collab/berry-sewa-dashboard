@@ -29,6 +29,7 @@ export function TenantProducts({
   const [productFormOpen, setProductFormOpen] = useState(false);
   const [variantFormOpen, setVariantFormOpen] = useState(false);
   const [selectedProductForVariant, setSelectedProductForVariant] = useState<Product | null>(null);
+  const [editingVariant, setEditingVariant] = useState<ProductVariant | null>(null);
 
   // Form states
   const [name, setName] = useState('');
@@ -119,16 +120,26 @@ export function TenantProducts({
     e.preventDefault();
     if (!selectedProductForVariant || !varName.trim()) return;
 
-    await onCreateVariant({
-      product_id: selectedProductForVariant.id,
-      name: varName,
-      price: parseFloat(varPrice) || 0,
-      stock: parseInt(varStock) || 0,
-      description: varDescription,
-      active: true,
-    });
+    if (editingVariant) {
+      await onUpdateVariant(editingVariant.id, {
+        name: varName,
+        price: parseFloat(varPrice) || 0,
+        stock: parseInt(varStock) || 0,
+        description: varDescription,
+      });
+    } else {
+      await onCreateVariant({
+        product_id: selectedProductForVariant.id,
+        name: varName,
+        price: parseFloat(varPrice) || 0,
+        stock: parseInt(varStock) || 0,
+        description: varDescription,
+        active: true,
+      });
+    }
 
     setVariantFormOpen(false);
+    setEditingVariant(null);
     setVarName('');
     setVarDescription('');
   };
@@ -275,9 +286,24 @@ export function TenantProducts({
                             </span>
                             <button
                               onClick={() => {
+                                setEditingVariant(v);
+                                setSelectedProductForVariant(products.find(p => String(p.id) === String(v.product_id)) || null);
+                                setVarName(v.name);
+                                setVarPrice(String(v.price));
+                                setVarStock(String(v.stock));
+                                setVarDescription(v.description || '');
+                                setVariantFormOpen(true);
+                              }}
+                              className="p-1 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-500 cursor-pointer"
+                              title="Edit variant"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={() => {
                                 if (confirm(`Delete variant "${v.name}"?`)) onDeleteVariant(v.id);
                               }}
-                              className="ml-1 p-1 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 cursor-pointer"
+                              className="p-1 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 cursor-pointer"
                               title="Delete variant"
                             >
                               <Trash2 className="w-3 h-3" />
@@ -306,6 +332,7 @@ export function TenantProducts({
                   <button
                     onClick={() => {
                       setSelectedProductForVariant(p);
+                      setEditingVariant(null);
                       setVarName('');
                       setVarPrice(String(p.price));
                       setVarStock('10');
@@ -651,8 +678,8 @@ export function TenantProducts({
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl max-w-sm w-full overflow-hidden shadow-2xl border border-gray-100 p-6 space-y-4">
             <div>
-              <h3 className="font-bold text-gray-950 text-base">New Variant: {selectedProductForVariant.name}</h3>
-              <p className="text-[11px] text-gray-400 mt-0.5">Attach custom price properties and limits.</p>
+              <h3 className="font-bold text-gray-950 text-base">{editingVariant ? 'Edit Variant' : 'New Variant'}: {selectedProductForVariant.name}</h3>
+              <p className="text-[11px] text-gray-400 mt-0.5">{editingVariant ? 'Update variant details.' : 'Attach custom price properties and limits.'}</p>
             </div>
 
             <form onSubmit={handleVariantSubmit} className="space-y-4">
@@ -716,7 +743,7 @@ export function TenantProducts({
               <div className="pt-2 flex items-center justify-end space-x-2">
                 <button
                   type="button"
-                  onClick={() => setVariantFormOpen(false)}
+                  onClick={() => { setVariantFormOpen(false); setEditingVariant(null); }}
                   className="px-3 py-1.5 border border-gray-200 text-gray-500 text-xs font-semibold rounded-full cursor-pointer"
                 >
                   Close
@@ -725,7 +752,7 @@ export function TenantProducts({
                   type="submit"
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-full cursor-pointer"
                 >
-                  Add Variant
+                  {editingVariant ? 'Save Changes' : 'Add Variant'}
                 </button>
               </div>
             </form>

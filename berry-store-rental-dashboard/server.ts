@@ -1316,6 +1316,7 @@ app.post('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Re
       name: variantPayload.variant_name,
       price: variantPayload.price,
       stock: variantPayload.stock,
+      description: variantPayload.description,
       active: true,
     });
     console.log('[VARIANT_CREATE] Dev mode — saved to local DB, id:', vari.id);
