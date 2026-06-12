@@ -481,6 +481,14 @@ class FileDatabase {
     return countAdded;
   }
 
+  updateCredentialVariant(credId: string, tenantId: string, variantId: string): Credential | null {
+    const cred = this.data.credentials.find(c => c.id === credId && c.tenant_id === tenantId);
+    if (!cred) return null;
+    cred.variant_id = variantId;
+    this.save();
+    return cred;
+  }
+
   // Users and Points
   getUsers(tenantId: string): User[] {
     return this.data.users.filter(u => u.tenant_id === tenantId);

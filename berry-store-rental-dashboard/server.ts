@@ -18,6 +18,27 @@ const supabase = (supabaseUrl && supabaseServiceKey)
     })
   : null;
 
+// Migration: ensure credentials table has variant_id column (best-effort)
+(async () => {
+  if (!supabase) return;
+  try {
+    const { error } = await supabase.from('credentials').select('variant_id').limit(0);
+    if (error && error.message?.includes('does not exist')) {
+      console.log('[MIGRATION] credentials.variant_id missing — attempting auto-add...');
+      const sql = 'alter table public.credentials add column if not exists variant_id bigint;';
+      const ok = await supabase.rpc('exec_sql', { sql }).catch(() => null)
+        || await supabase.rpc('exec', { query_text: sql }).catch(() => null);
+      if (ok) {
+        console.log('[MIGRATION] credentials.variant_id added');
+      } else {
+        console.log('[MIGRATION] Cannot auto-add credentials.variant_id — run manually if needed: ALTER TABLE public.credentials ADD COLUMN IF NOT EXISTS variant_id bigint;');
+      }
+    }
+  } catch {
+    // ignore
+  }
+})();
+
 // Supabase query helper for tenant-scoped read operations
 async function supabaseGet(tenantId: string, table: string, select?: string): Promise<any[] | null> {
   if (!supabase) return null;
@@ -1666,7 +1687,7 @@ app.get('/api/tenant/credentials', requireTenantAuth, async (req: Request, res: 
 });
 
 // POST /api/tenant/credentials
-app.post('/api/tenant/credentials', requireTenantAuth, (req: Request, res: Response) => {
+app.post('/api/tenant/credentials', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
   const { product_id, variant_id, raw_text } = req.body;
 
@@ -1675,9 +1696,64 @@ app.post('/api/tenant/credentials', requireTenantAuth, (req: Request, res: Respo
     return;
   }
 
+  const pairs = raw_text.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 0);
+
+  // Write to Supabase if available
+  if (supabase) {
+    const rows = pairs.map((pair: string) => ({
+      tenant_id: tenantId,
+      product_id: Number(product_id),
+      variant_id: variant_id ? Number(variant_id) : null,
+      value: pair,
+      is_used: false,
+      used_by_order_id: null,
+    }));
+    const { error: insertError } = await supabase.from('credentials').insert(rows);
+    if (insertError) {
+      console.error('[SUPABASE] credentials insert error:', insertError.message);
+      res.status(500).json({ error: `Supabase insert failed: ${insertError.message}` });
+      return;
+    }
+  }
+
+  // Also write to local DB
   const added = db.addCredentials(tenantId, product_id, variant_id || null, raw_text);
   db.log(tenantId, 'CREDENTIALS_BULK', `Bulk uploaded ${added} credentials for product ID: #${product_id}`);
   res.json({ status: 'success', count_added: added });
+});
+
+// PATCH /api/tenant/credentials/:id/assign-variant
+app.patch('/api/tenant/credentials/:id/assign-variant', requireTenantAuth, async (req: Request, res: Response) => {
+  const tenantId = (req as any).tenant_id;
+  const credId = req.params.id;
+  const { variant_id } = req.body;
+
+  if (!variant_id) {
+    res.status(400).json({ error: 'variant_id is required' });
+    return;
+  }
+
+  if (supabase) {
+    const { error } = await supabase
+      .from('credentials')
+      .update({ variant_id: Number(variant_id) })
+      .eq('id', Number(credId))
+      .eq('tenant_id', tenantId);
+    if (error) {
+      console.error('[SUPABASE] credentials variant assign error:', error.message);
+      res.status(500).json({ error: `Supabase update failed: ${error.message}` });
+      return;
+    }
+  }
+
+  const updated = db.updateCredentialVariant(credId, tenantId, variant_id);
+  if (!updated) {
+    res.status(404).json({ error: 'Credential not found' });
+    return;
+  }
+
+  db.log(tenantId, 'CREDENTIALS_ASSIGN', `Assigned credential ID: ${credId} to variant ID: ${variant_id}`);
+  res.json({ ok: true });
 });
 
 // GET /api/tenant/settings
