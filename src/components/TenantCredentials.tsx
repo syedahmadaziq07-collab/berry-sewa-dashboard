@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Credential, Product, ProductVariant } from '../types';
-import { KeyRound, PlusCircle, CheckCircle, ShieldAlert, Sparkles, Filter, AlertTriangle, PenLine } from 'lucide-react';
+import { KeyRound, PlusCircle, CheckCircle, Sparkles, Filter, AlertTriangle } from 'lucide-react';
 import { TableSkeleton } from './Skeleton';
 import { EmptyState } from './EmptyState';
 
@@ -96,12 +96,6 @@ export function TenantCredentials({ credentials, products, variants, loading, on
 
   const activeUnused = metricsCredentials.filter(c => !c.is_used);
   const totalAllocated = metricsCredentials.filter(c => c.is_used);
-
-  const getProductLabel = (c: Credential) => {
-    const p = products.find(prod => prod.id === c.product_id);
-    const v = c.variant_id ? variants.find(varObj => varObj.id === c.variant_id) : null;
-    return `${p ? p.name : 'Unknown Product'}${v ? ` — ${v.name}` : ''}`;
-  };
 
   const handleAssignVariant = async (credentialId: string, newVariantId: string) => {
     try {
@@ -323,14 +317,10 @@ export function TenantCredentials({ credentials, products, variants, loading, on
                         <p className="text-[10px] text-gray-400 font-semibold truncate leading-tight">
                           Product: <span className="text-gray-600">{p ? p.name : 'Unknown'}</span>
                         </p>
-                        {v && (
-                          <>
-                            <span className="text-gray-300">|</span>
-                            <p className="text-[10px] text-gray-400 font-semibold truncate leading-tight">
-                              Variant: <span className="text-gray-600">{v.name}</span>
-                            </p>
-                          </>
-                        )}
+                        <span className="text-gray-300">|</span>
+                        <p className="text-[10px] text-gray-400 font-semibold truncate leading-tight">
+                          Variant: <span className="text-gray-600">{v ? v.name : '-'}</span>
+                        </p>
                         {isLegacy && (
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-full text-[9px] font-black uppercase">
                             <AlertTriangle className="w-2.5 h-2.5" />
