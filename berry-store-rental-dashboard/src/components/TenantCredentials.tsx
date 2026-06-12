@@ -26,7 +26,37 @@ export function TenantCredentials({ credentials, products, variants, loading, on
 
   const activeProducts = products.filter(p => p.auto_delivery);
   const selectedProduct = activeProducts.find(p => p.id === selectedProductId);
-  const matchingVariants = selectedProduct ? variants.filter(v => v.product_id === selectedProduct.id) : [];
+  const matchingVariants = (() => {
+    if (!selectedProduct) return [];
+
+    const pid = Number(selectedProduct.id);
+
+    // Primary: fetch from variants prop (product_variants table)
+    const fromTable = variants.filter(v => Number(v.product_id) === pid);
+    if (fromTable.length > 0) {
+      console.log(`[CREDENTIAL_VARIANTS] tenant=${selectedProduct.tenant_id} product_id=${pid} product="${selectedProduct.name}" source=product_variants count=${fromTable.length}`, fromTable);
+      return fromTable;
+    }
+
+    // Fallback: check if product has embedded variants JSON (legacy)
+    const embedded = (selectedProduct as any).variants;
+    if (Array.isArray(embedded) && embedded.length > 0) {
+      console.log(`[CREDENTIAL_VARIANTS] tenant=${selectedProduct.tenant_id} product_id=${pid} product="${selectedProduct.name}" source=products.variants JSON count=${embedded.length}`, embedded);
+      console.warn(`[CREDENTIAL_VARIANTS] variants found in products.variants JSON but missing from product_variants table`);
+      // Normalize: ensure each variant has 'name' (may be variant_name in raw JSON)
+      return embedded.map((v: any) => ({
+        ...v,
+        name: v.name || v.variant_name || 'Unknown',
+        id: String(v.id || v.variant_id || Math.random()),
+        product_id: String(pid),
+        stock: Number(v.stock) || 0,
+        price: Number(v.price) || 0,
+      }));
+    }
+
+    console.log(`[CREDENTIAL_VARIANTS] tenant=${selectedProduct.tenant_id} product_id=${pid} product="${selectedProduct.name}" source=none count=0`);
+    return [];
+  })();
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
