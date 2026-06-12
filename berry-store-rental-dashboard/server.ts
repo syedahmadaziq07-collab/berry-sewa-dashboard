@@ -22,8 +22,9 @@ const supabase = (supabaseUrl && supabaseServiceKey)
 (async () => {
   if (!supabase) return;
   try {
-    const { error } = await supabase.from('credentials').select('variant_id').limit(0);
-    if (error && error.message?.includes('does not exist')) {
+    const { error: variantErr } = await supabase.from('credentials').select('variant_id').limit(0);
+    const variantExists = !(variantErr && variantErr.message?.includes('does not exist'));
+    if (!variantExists) {
       console.log('[MIGRATION] credentials.variant_id missing — attempting auto-add...');
       const sql = 'alter table public.credentials add column if not exists variant_id bigint;';
       const ok = await supabase.rpc('exec_sql', { sql }).catch(() => null)
@@ -34,6 +35,18 @@ const supabase = (supabaseUrl && supabaseServiceKey)
         console.log('[MIGRATION] Cannot auto-add credentials.variant_id — run manually if needed: ALTER TABLE public.credentials ADD COLUMN IF NOT EXISTS variant_id bigint;');
       }
     }
+
+    // Check other columns
+    const colCheck = async (col: string) => {
+      const { error } = await supabase.from('credentials').select(col).limit(0);
+      return !(error && error.message?.includes('does not exist'));
+    };
+    const emailExists = await colCheck('email');
+    const passwordExists = await colCheck('password');
+    const valExists = await colCheck('value');
+    const usedByExists = await colCheck('used_by_order_id');
+
+    console.log(`[CREDENTIALS_SCHEMA] email=${emailExists} password=${passwordExists} variant_id=${variantExists} value=${valExists} used_by_order_id=${usedByExists}`);
   } catch {
     // ignore
   }
@@ -1700,14 +1713,26 @@ app.post('/api/tenant/credentials', requireTenantAuth, async (req: Request, res:
 
   // Write to Supabase if available
   if (supabase) {
-    const rows = pairs.map((pair: string) => ({
-      tenant_id: tenantId,
-      product_id: Number(product_id),
-      variant_id: variant_id ? Number(variant_id) : null,
-      value: pair,
-      is_used: false,
-      used_by_order_id: null,
-    }));
+    const rows = pairs.map((line: string) => {
+      let email: string;
+      let password: string;
+      const colonIdx = line.indexOf(':');
+      if (colonIdx !== -1) {
+        email = line.substring(0, colonIdx).trim();
+        password = line.substring(colonIdx + 1).trim();
+      } else {
+        email = line;
+        password = '';
+      }
+      return {
+        tenant_id: tenantId,
+        product_id: Number(product_id),
+        variant_id: variant_id ? Number(variant_id) : null,
+        email,
+        password,
+        is_used: false,
+      };
+    });
     const { error: insertError } = await supabase.from('credentials').insert(rows);
     if (insertError) {
       console.error('[SUPABASE] credentials insert error:', insertError.message);

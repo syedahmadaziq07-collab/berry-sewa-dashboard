@@ -160,16 +160,16 @@ const initialDB: DBStructure = {
     { id: "o5", tenant_id: "premium_shop", product_id: "p1", variant_id: "v2", status: "rejected", payer_username: "@fake_troll", payer_telegram_id: "88888888", amount: 6.50, created_at: "2026-06-05T12:00:00Z", notes: "Fake receipt image provided." }
   ],
   credentials: [
-    { id: "c1", tenant_id: "premium_shop", product_id: "p1", variant_id: "v1", value: "spotify.alice@berry.com:alicepass1", is_used: true, used_by_order_id: "o1", created_at: "2026-06-01T12:00:00Z" },
-    { id: "c2", tenant_id: "premium_shop", product_id: "p1", variant_id: "v1", value: "spotify.active.user2@berry.com:berryuser2pass", is_used: false, used_by_order_id: null, created_at: "2026-06-01T12:00:00Z" },
-    { id: "c3", tenant_id: "premium_shop", product_id: "p1", variant_id: "v2", value: "spotify.uk.active@berry.com:ukpass1", is_used: false, used_by_order_id: null, created_at: "2026-06-01T12:00:00Z" },
-    { id: "c4", tenant_id: "vpn_store", product_id: "vp1", variant_id: null, value: "fruitvpn-client-auth-token-1104", is_used: true, used_by_order_id: "o4", created_at: "2026-06-05T12:00:00Z" },
-    { id: "c5", tenant_id: "vpn_store", product_id: "vp1", variant_id: null, value: "fruitvpn-client-auth-token-1106", is_used: false, used_by_order_id: null, created_at: "2026-06-05T13:00:00Z" },
-    { id: "c6", tenant_id: "vpn_store", product_id: "vp1", variant_id: null, value: "fruitvpn-client-auth-token-1107", is_used: false, used_by_order_id: null, created_at: "2026-06-05T13:00:00Z" },
-    { id: "c7", tenant_id: "vpn_store", product_id: "vp1", variant_id: null, value: "fruitvpn-client-auth-token-1108", is_used: false, used_by_order_id: null, created_at: "2026-06-05T13:00:00Z" },
-    { id: "c8", tenant_id: "vpn_store", product_id: "vp1", variant_id: null, value: "fruitvpn-client-auth-token-1109", is_used: false, used_by_order_id: null, created_at: "2026-06-05T13:00:00Z" },
-    { id: "c9", tenant_id: "vpn_store", product_id: "vp1", variant_id: null, value: "fruitvpn-client-auth-token-1110", is_used: false, used_by_order_id: null, created_at: "2026-06-05T13:00:00Z" },
-    { id: "c10", tenant_id: "vpn_store", product_id: "vp2", variant_id: null, value: "fruitvpn-premium-family-keys-992", is_used: false, used_by_order_id: null, created_at: "2026-06-05T14:40:00Z" }
+    { id: "c1", tenant_id: "premium_shop", product_id: "p1", variant_id: "v1", email: "spotify.alice@berry.com", password: "alicepass1", is_used: true, created_at: "2026-06-01T12:00:00Z" },
+    { id: "c2", tenant_id: "premium_shop", product_id: "p1", variant_id: "v1", email: "spotify.active.user2@berry.com", password: "berryuser2pass", is_used: false, created_at: "2026-06-01T12:00:00Z" },
+    { id: "c3", tenant_id: "premium_shop", product_id: "p1", variant_id: "v2", email: "spotify.uk.active@berry.com", password: "ukpass1", is_used: false, created_at: "2026-06-01T12:00:00Z" },
+    { id: "c4", tenant_id: "vpn_store", product_id: "vp1", variant_id: null, email: "fruitvpn-client-auth-token-1104", password: "", is_used: true, created_at: "2026-06-05T12:00:00Z" },
+    { id: "c5", tenant_id: "vpn_store", product_id: "vp1", variant_id: null, email: "fruitvpn-client-auth-token-1106", password: "", is_used: false, created_at: "2026-06-05T13:00:00Z" },
+    { id: "c6", tenant_id: "vpn_store", product_id: "vp1", variant_id: null, email: "fruitvpn-client-auth-token-1107", password: "", is_used: false, created_at: "2026-06-05T13:00:00Z" },
+    { id: "c7", tenant_id: "vpn_store", product_id: "vp1", variant_id: null, email: "fruitvpn-client-auth-token-1108", password: "", is_used: false, created_at: "2026-06-05T13:00:00Z" },
+    { id: "c8", tenant_id: "vpn_store", product_id: "vp1", variant_id: null, email: "fruitvpn-client-auth-token-1109", password: "", is_used: false, created_at: "2026-06-05T13:00:00Z" },
+    { id: "c9", tenant_id: "vpn_store", product_id: "vp1", variant_id: null, email: "fruitvpn-client-auth-token-1110", password: "", is_used: false, created_at: "2026-06-05T13:00:00Z" },
+    { id: "c10", tenant_id: "vpn_store", product_id: "vp2", variant_id: null, email: "fruitvpn-premium-family-keys-992", password: "", is_used: false, created_at: "2026-06-05T14:40:00Z" }
   ],
   users: [
     { id: "u1", tenant_id: "premium_shop", telegram_id: "11223344", username: "alice_wonder", first_name: "Alice", points: 120, joined_at: "2026-05-15T12:00:00Z" },
@@ -415,9 +415,10 @@ class FileDatabase {
                !c.is_used
         );
         if (credIdx !== -1) {
-          this.data.credentials[credIdx].is_used = true;
-          this.data.credentials[credIdx].used_by_order_id = o.id;
-          o.notes = (o.notes || "") + ` | Auto Deliver: ${this.data.credentials[credIdx].value}`;
+          const cred = this.data.credentials[credIdx];
+          cred.is_used = true;
+          (cred as any).used_by_order_id = o.id;
+          o.notes = (o.notes || "") + ` | Auto Deliver: ${cred.email}${cred.password ? ':****' : ''}`;
           // Decrease stock for product
           this.recalculateProductStock(o.product_id, tenantId);
         } else {
@@ -457,18 +458,29 @@ class FileDatabase {
   }
 
   addCredentials(tenantId: string, productId: string, variantId: string | null, text: string): number {
-    const pairs = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     let countAdded = 0;
 
-    for (const pair of pairs) {
+    for (const line of lines) {
+      let email: string;
+      let password: string;
+      const colonIdx = line.indexOf(':');
+      if (colonIdx !== -1) {
+        email = line.substring(0, colonIdx).trim();
+        password = line.substring(colonIdx + 1).trim();
+      } else {
+        email = line;
+        password = '';
+      }
+
       const newCred: Credential = {
         id: "cred_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
         tenant_id: tenantId,
         product_id: productId,
         variant_id: variantId || null,
-        value: pair,
+        email,
+        password,
         is_used: false,
-        used_by_order_id: null,
         created_at: new Date().toISOString()
       };
       this.data.credentials.push(newCred);

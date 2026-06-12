@@ -62,9 +62,9 @@ export interface Credential {
   tenant_id: string;
   product_id: string;
   variant_id: string | null;
-  value: string; // e.g. "email:password"
+  email: string;
+  password: string;
   is_used: boolean;
-  used_by_order_id: string | null;
   created_at: string;
 }
 

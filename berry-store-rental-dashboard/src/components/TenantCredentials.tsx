@@ -25,25 +25,28 @@ export function TenantCredentials({ credentials, products, variants, loading, on
   const [statusFilter, setStatusFilter] = useState('all');
 
   const activeProducts = products.filter(p => p.auto_delivery);
-  const selectedProduct = activeProducts.find(p => p.id === selectedProductId);
-  const matchingVariants = (() => {
-    if (!selectedProduct) return [];
+  const selectedProduct = activeProducts.find(p => String(p.id) === selectedProductId);
 
-    const pid = Number(selectedProduct.id);
+  const matchingVariants = (() => {
+    if (!selectedProductId) return [];
+
+    const pid = Number(selectedProductId);
+    const sessionTenantId = selectedProduct?.tenant_id || '';
 
     // Primary: fetch from variants prop (product_variants table)
+    const allVariantsCount = variants.length;
     const fromTable = variants.filter(v => Number(v.product_id) === pid);
+    console.log(`[CREDENTIAL_VARIANTS] session_tenant_id=${sessionTenantId} selected_product_id=${pid} selected_product_name="${selectedProduct?.name || 'Unknown'}" all_variants_count=${allVariantsCount} matching_variants_count=${fromTable.length} matching_variants_rows=`, fromTable);
+    console.log(`[CREDENTIAL_VARIANTS] selected_product_variants_json=`, (selectedProduct as any)?.variants);
+
     if (fromTable.length > 0) {
-      console.log(`[CREDENTIAL_VARIANTS] tenant=${selectedProduct.tenant_id} product_id=${pid} product="${selectedProduct.name}" source=product_variants count=${fromTable.length}`, fromTable);
       return fromTable;
     }
 
     // Fallback: check if product has embedded variants JSON (legacy)
-    const embedded = (selectedProduct as any).variants;
+    const embedded = (selectedProduct as any)?.variants;
     if (Array.isArray(embedded) && embedded.length > 0) {
-      console.log(`[CREDENTIAL_VARIANTS] tenant=${selectedProduct.tenant_id} product_id=${pid} product="${selectedProduct.name}" source=products.variants JSON count=${embedded.length}`, embedded);
-      console.warn(`[CREDENTIAL_VARIANTS] variants found in products.variants JSON but missing from product_variants table`);
-      // Normalize: ensure each variant has 'name' (may be variant_name in raw JSON)
+      console.log(`[CREDENTIAL_VARIANTS] fallback_json_used=true count=${embedded.length}`);
       return embedded.map((v: any) => ({
         ...v,
         name: v.name || v.variant_name || 'Unknown',
@@ -54,7 +57,7 @@ export function TenantCredentials({ credentials, products, variants, loading, on
       }));
     }
 
-    console.log(`[CREDENTIAL_VARIANTS] tenant=${selectedProduct.tenant_id} product_id=${pid} product="${selectedProduct.name}" source=none count=0`);
+    console.log(`[CREDENTIAL_VARIANTS] fallback_json_used=false`);
     return [];
   })();
 
@@ -342,7 +345,9 @@ export function TenantCredentials({ credentials, products, variants, loading, on
                 return (
                   <div key={c.id} className="flex justify-between items-center p-3 hover:bg-gray-50 rounded-xl border border-gray-100/30 transition-colors">
                     <div className="space-y-1 min-w-0 flex-1">
-                      <p className="font-mono font-bold text-gray-900 truncate max-w-sm">{c.value}</p>
+                      <p className="font-mono font-bold text-gray-900 truncate max-w-sm">
+                        {c.password ? `${c.email} — ${'•'.repeat(Math.min(c.password.length, 8))}` : c.email}
+                      </p>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <p className="text-[10px] text-gray-400 font-semibold truncate leading-tight">
                           Product: <span className="text-gray-600">{p ? p.name : 'Unknown'}</span>
