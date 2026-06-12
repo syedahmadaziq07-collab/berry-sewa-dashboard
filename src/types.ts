@@ -40,6 +40,7 @@ export interface ProductVariant {
   price: number;
   stock: number;
   active: boolean;
+  description?: string;
 }
 
 export interface Order {

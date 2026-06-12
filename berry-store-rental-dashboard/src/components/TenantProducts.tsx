@@ -42,6 +42,7 @@ export function TenantProducts({
   const [varName, setVarName] = useState('');
   const [varPrice, setVarPrice] = useState('5.00');
   const [varStock, setVarStock] = useState('10');
+  const [varDescription, setVarDescription] = useState('');
 
   // Stock modals
   const [stockModal, setStockModal] = useState<{ product: Product; mode: 'add' | 'set' } | null>(null);
@@ -123,11 +124,13 @@ export function TenantProducts({
       name: varName,
       price: parseFloat(varPrice) || 0,
       stock: parseInt(varStock) || 0,
+      description: varDescription,
       active: true,
     });
 
     setVariantFormOpen(false);
     setVarName('');
+    setVarDescription('');
   };
 
   const handleStockSubmit = async (e: React.FormEvent) => {
@@ -256,10 +259,16 @@ export function TenantProducts({
                       <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">Available Options/Variants</p>
                       <div className="flex flex-wrap gap-2">
                         {productVars.map(v => (
-                          <div key={v.id} className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-1.5 text-xs flex items-center space-x-2">
+                          <div key={v.id} className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-1.5 text-xs flex items-center space-x-2" title={v.description || ''}>
                             <span className="font-semibold text-gray-800">{v.name}</span>
                             <span className="text-gray-300 font-medium">|</span>
                             <span className="font-mono font-bold text-gray-900">RM{v.price.toFixed(2)}</span>
+                            {v.description && (
+                              <>
+                                <span className="text-gray-300 font-medium">|</span>
+                                <span className="text-gray-400 italic truncate max-w-[120px]">{v.description}</span>
+                              </>
+                            )}
                             <span className="text-gray-300 font-medium">|</span>
                             <span className={`font-mono font-bold ${v.stock === 0 ? 'text-rose-600' : 'text-gray-600'}`}>
                               {v.stock === 0 ? 'Out of stock' : `${v.stock} in stock`}
@@ -300,6 +309,7 @@ export function TenantProducts({
                       setVarName('');
                       setVarPrice(String(p.price));
                       setVarStock('10');
+                      setVarDescription('');
                       setVariantFormOpen(true);
                     }}
                     className="flex items-center justify-center space-x-1 border border-gray-200/90 hover:bg-gray-50 text-gray-600 px-3.5 py-2 rounded-full font-semibold text-xs cursor-pointer"
@@ -681,6 +691,17 @@ export function TenantProducts({
                     disabled={selectedProductForVariant.auto_delivery}
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-500 block mb-1">Description (optional)</label>
+                <textarea
+                  placeholder="e.g. Shared account, valid 30 days"
+                  value={varDescription}
+                  onChange={(e) => setVarDescription(e.target.value)}
+                  rows={2}
+                  className="w-full px-3.5 py-2 border border-gray-200 rounded-xl text-xs resize-none"
+                />
               </div>
 
               {selectedProductForVariant.auto_delivery && (
