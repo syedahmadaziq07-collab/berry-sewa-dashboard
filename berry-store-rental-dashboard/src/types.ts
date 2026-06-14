@@ -30,6 +30,7 @@ export interface Product {
   auto_delivery: boolean;
   active: boolean;
   status?: string;
+  delivery_note?: string | null;
 }
 
 export interface ProductVariant {
@@ -41,6 +42,7 @@ export interface ProductVariant {
   stock: number;
   active: boolean;
   description?: string;
+  delivery_note?: string | null;
 }
 
 export interface Order {

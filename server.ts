@@ -36,6 +36,36 @@ const supabase = (supabaseUrl && supabaseServiceKey)
       }
     }
 
+    // Migration: ensure products.delivery_note column exists
+    const { error: prodNoteErr } = await supabase.from('products').select('delivery_note').limit(0);
+    const prodNoteExists = !(prodNoteErr && prodNoteErr.message?.includes('does not exist'));
+    if (!prodNoteExists) {
+      console.log('[MIGRATION] products.delivery_note missing — attempting auto-add...');
+      const sql = 'alter table public.products add column if not exists delivery_note text;';
+      const ok = await supabase.rpc('exec_sql', { sql }).catch(() => null)
+        || await supabase.rpc('exec', { query_text: sql }).catch(() => null);
+      if (ok) {
+        console.log('[MIGRATION] products.delivery_note added');
+      } else {
+        console.log('[MIGRATION] Cannot auto-add products.delivery_note — run manually: ALTER TABLE public.products ADD COLUMN IF NOT EXISTS delivery_note text;');
+      }
+    }
+
+    // Migration: ensure product_variants.delivery_note column exists
+    const { error: varNoteErr } = await supabase.from('product_variants').select('delivery_note').limit(0);
+    const varNoteExists = !(varNoteErr && varNoteErr.message?.includes('does not exist'));
+    if (!varNoteExists) {
+      console.log('[MIGRATION] product_variants.delivery_note missing — attempting auto-add...');
+      const sql2 = 'alter table public.product_variants add column if not exists delivery_note text;';
+      const ok2 = await supabase.rpc('exec_sql', { sql: sql2 }).catch(() => null)
+        || await supabase.rpc('exec', { query_text: sql2 }).catch(() => null);
+      if (ok2) {
+        console.log('[MIGRATION] product_variants.delivery_note added');
+      } else {
+        console.log('[MIGRATION] Cannot auto-add product_variants.delivery_note — run manually: ALTER TABLE public.product_variants ADD COLUMN IF NOT EXISTS delivery_note text;');
+      }
+    }
+
     // Check other columns
     const colCheck = async (col: string) => {
       const { error } = await supabase.from('credentials').select(col).limit(0);
@@ -820,6 +850,7 @@ app.post('/api/tenant/products', requireTenantAuth, async (req: Request, res: Re
     tenant_id: tenantId,
     name,
     description: description || body.description || '',
+    delivery_note: body.delivery_note || '',
     price: productPrice,
     stock: Number(body.stock || 0),
     duration: duration || '',
@@ -1283,7 +1314,7 @@ app.get('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Res
 // POST /api/tenant/variants
 app.post('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Response) => {
   const tenantId = (req as any).tenant_id;
-  const { product_id, name, price, stock, description } = req.body;
+  const { product_id, name, price, stock, description, delivery_note } = req.body;
 
   if (!product_id || !name || price === undefined) {
     res.status(400).json({ error: 'Product ID, variation name, and price are required' });
@@ -1297,6 +1328,7 @@ app.post('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Re
     price: Number(price) || 0,
     stock: Number(stock || 0),
     description: description || '',
+    delivery_note: delivery_note || '',
   };
 
   console.log('[VARIANT_CREATE] session tenant_id:', tenantId);
@@ -1317,6 +1349,7 @@ app.post('/api/tenant/variants', requireTenantAuth, async (req: Request, res: Re
       price: variantPayload.price,
       stock: variantPayload.stock,
       description: variantPayload.description,
+      delivery_note: variantPayload.delivery_note,
       active: true,
     });
     console.log('[VARIANT_CREATE] Dev mode — saved to local DB, id:', vari.id);

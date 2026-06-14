@@ -38,12 +38,14 @@ export function TenantProducts({
   const [description, setDescription] = useState('');
   const [autoDelivery, setAutoDelivery] = useState(true);
   const [stock, setStock] = useState('10');
+  const [deliveryNote, setDeliveryNote] = useState('');
 
   // Variant form states
   const [varName, setVarName] = useState('');
   const [varPrice, setVarPrice] = useState('5.00');
   const [varStock, setVarStock] = useState('10');
   const [varDescription, setVarDescription] = useState('');
+  const [varDeliveryNote, setVarDeliveryNote] = useState('');
 
   // Stock modals
   const [stockModal, setStockModal] = useState<{ product: Product; mode: 'add' | 'set' } | null>(null);
@@ -70,6 +72,7 @@ export function TenantProducts({
     setPrice('5.00');
     setDuration('1 month');
     setDescription('');
+    setDeliveryNote('');
     setAutoDelivery(true);
     setStock('10');
     setProductFormOpen(true);
@@ -81,6 +84,7 @@ export function TenantProducts({
     setPrice(String(p.price));
     setDuration(p.duration);
     setDescription(p.description);
+    setDeliveryNote(p.delivery_note || '');
     setAutoDelivery(p.auto_delivery);
     setStock(String(p.stock));
     setProductFormOpen(true);
@@ -98,6 +102,7 @@ export function TenantProducts({
         price: parsedPrice,
         duration,
         description,
+        delivery_note: deliveryNote,
         auto_delivery: autoDelivery,
         stock: parsedStock,
         active: true,
@@ -108,6 +113,7 @@ export function TenantProducts({
         price: parsedPrice,
         duration,
         description,
+        delivery_note: deliveryNote,
         auto_delivery: autoDelivery,
         stock: parsedStock,
         active: true,
@@ -126,6 +132,7 @@ export function TenantProducts({
         price: parseFloat(varPrice) || 0,
         stock: parseInt(varStock) || 0,
         description: varDescription,
+        delivery_note: varDeliveryNote,
       });
     } else {
       await onCreateVariant({
@@ -134,6 +141,7 @@ export function TenantProducts({
         price: parseFloat(varPrice) || 0,
         stock: parseInt(varStock) || 0,
         description: varDescription,
+        delivery_note: varDeliveryNote,
         active: true,
       });
     }
@@ -142,6 +150,7 @@ export function TenantProducts({
     setEditingVariant(null);
     setVarName('');
     setVarDescription('');
+    setVarDeliveryNote('');
   };
 
   const handleStockSubmit = async (e: React.FormEvent) => {
@@ -292,6 +301,7 @@ export function TenantProducts({
                                 setVarPrice(String(v.price));
                                 setVarStock(String(v.stock));
                                 setVarDescription(v.description || '');
+                                setVarDeliveryNote(v.delivery_note || '');
                                 setVariantFormOpen(true);
                               }}
                               className="p-1 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-500 cursor-pointer"
@@ -337,6 +347,7 @@ export function TenantProducts({
                       setVarPrice(String(p.price));
                       setVarStock('10');
                       setVarDescription('');
+                      setVarDeliveryNote('');
                       setVariantFormOpen(true);
                     }}
                     className="flex items-center justify-center space-x-1 border border-gray-200/90 hover:bg-gray-50 text-gray-600 px-3.5 py-2 rounded-full font-semibold text-xs cursor-pointer"
@@ -442,6 +453,17 @@ export function TenantProducts({
                   placeholder="Provide parameters and specs describing the service option..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Delivery Notes / Rules After Purchase</label>
+                <textarea
+                  rows={3}
+                  placeholder="Rules or notes sent after auto-delivery, e.g. login instructions, warranty rules, do not change email/password..."
+                  value={deliveryNote}
+                  onChange={(e) => setDeliveryNote(e.target.value)}
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 resize-none"
                 />
               </div>
@@ -721,11 +743,22 @@ export function TenantProducts({
               </div>
 
               <div>
-                <label className="text-xs font-bold text-gray-500 block mb-1">Description (optional)</label>
+                <label className="text-xs font-bold text-gray-500 block mb-1">Variant Description</label>
                 <textarea
-                  placeholder="e.g. Shared account, valid 30 days"
+                  placeholder="Description shown before purchase, e.g. 7 days access, 1 device..."
                   value={varDescription}
                   onChange={(e) => setVarDescription(e.target.value)}
+                  rows={2}
+                  className="w-full px-3.5 py-2 border border-gray-200 rounded-xl text-xs resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-500 block mb-1">Delivery Notes / Rules After Purchase</label>
+                <textarea
+                  placeholder="Rules sent after this variant is delivered..."
+                  value={varDeliveryNote}
+                  onChange={(e) => setVarDeliveryNote(e.target.value)}
                   rows={2}
                   className="w-full px-3.5 py-2 border border-gray-200 rounded-xl text-xs resize-none"
                 />
