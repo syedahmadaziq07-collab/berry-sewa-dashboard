@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import path from 'path';
 import multer from 'multer';
 import WebSocket from 'ws';
+import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 
 import { db, hashPassword, verifyPassword } from './server-db';
@@ -187,6 +188,11 @@ const MASTER_ADMIN_SECRET = process.env.MASTER_ADMIN_SECRET || 'berry_master_sec
 
 const app = express();
 
+app.use(cors({
+  origin: process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:5173',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+}));
 app.use(express.json());
 app.use(cookieParser());
 
