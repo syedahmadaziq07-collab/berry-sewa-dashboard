@@ -1,0 +1,5 @@
+.berry_sessions.json
+berry_db_backup.json
+server/
+*.cjs
+dist/
