@@ -196,6 +196,12 @@ app.use(cors({
 app.use(express.json());
 app.use(cookieParser());
 
+// Request logger for debugging (Vercel logs)
+app.use((req: Request, res: Response, next: NextFunction) => {
+  console.log(`[REQUEST] ${req.method} ${req.path}`);
+  next();
+});
+
 // GET /api/health
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({ ok: true, service: "berry-rental-dashboard" });
@@ -215,39 +221,49 @@ async function getSession(req: Request) {
 }
 
 async function requireTenantAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const session = await getSession(req);
-  if (!session || session.role !== 'tenant' || !session.tenant_id) {
-    res.status(401).json({ error: 'Unauthenticated tenant access' });
-    return;
+  try {
+    const session = await getSession(req);
+    if (!session || session.role !== 'tenant' || !session.tenant_id) {
+      res.status(401).json({ error: 'Unauthenticated tenant access' });
+      return;
+    }
+    
+    // Double-check if tenant was suspended, disabled or expired in real-time
+    const tenant = db.getTenant(session.tenant_id);
+    if (!tenant) {
+      res.status(401).json({ error: 'Tenant no longer exists' });
+      return;
+    }
+    if (!tenant.dashboard_enabled) {
+      res.status(403).json({ error: 'Dashboard access is disabled' });
+      return;
+    }
+    if (tenant.status === 'suspended') {
+      res.status(403).json({ error: 'Tenant suspended' });
+      return;
+    }
+    
+    // Attach tenant context
+    (req as any).tenant_id = session.tenant_id;
+    next();
+  } catch (err: any) {
+    console.error('[AUTH_MIDDLEWARE_ERROR]', err?.message, err?.stack);
+    res.status(500).json({ error: 'Internal server error' });
   }
-  
-  // Double-check if tenant was suspended, disabled or expired in real-time
-  const tenant = db.getTenant(session.tenant_id);
-  if (!tenant) {
-    res.status(401).json({ error: 'Tenant no longer exists' });
-    return;
-  }
-  if (!tenant.dashboard_enabled) {
-    res.status(403).json({ error: 'Dashboard access is disabled' });
-    return;
-  }
-  if (tenant.status === 'suspended') {
-    res.status(403).json({ error: 'Tenant suspended' });
-    return;
-  }
-  
-  // Attach tenant context
-  (req as any).tenant_id = session.tenant_id;
-  next();
 }
 
 async function requireMasterAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const session = await getSession(req);
-  if (!session || session.role !== 'master') {
-    res.status(401).json({ error: 'Unauthenticated master access' });
-    return;
+  try {
+    const session = await getSession(req);
+    if (!session || session.role !== 'master') {
+      res.status(401).json({ error: 'Unauthenticated master access' });
+      return;
+    }
+    next();
+  } catch (err: any) {
+    console.error('[AUTH_MIDDLEWARE_ERROR]', err?.message, err?.stack);
+    res.status(500).json({ error: 'Internal server error' });
   }
-  next();
 }
 
 // -------------------------------------------------------------------
@@ -256,46 +272,52 @@ async function requireMasterAuth(req: Request, res: Response, next: NextFunction
 
 // GET /api/auth/me
 app.get('/api/auth/me', async (req: Request, res: Response) => {
-  const session = await getSession(req);
-  if (!session) {
-    res.status(401).json({ isAuthenticated: false });
-    return;
-  }
-
-  if (session.role === 'tenant' && session.tenant_id) {
-    const tenant = db.getTenant(session.tenant_id);
-    if (!tenant || tenant.status === 'suspended' || !tenant.dashboard_enabled) {
-      res.status(401).json({ isAuthenticated: false, error: 'Session restricted or terminated' });
+  try {
+    const session = await getSession(req);
+    if (!session) {
+      res.status(401).json({ isAuthenticated: false });
       return;
     }
-    res.json({
-      isAuthenticated: true,
-      role: 'tenant',
-      tenant_id: tenant.tenant_id,
-      name: tenant.name,
-      bot_username: tenant.bot_username,
-      status: tenant.status,
-      password_reset_required: tenant.dashboard_password_reset_required
-    });
-  } else if (session.role === 'master') {
-    res.json({
-      isAuthenticated: true,
-      role: 'master',
-      username: 'Master Owner'
-    });
-  } else {
-    res.status(401).json({ isAuthenticated: false });
+
+    if (session.role === 'tenant' && session.tenant_id) {
+      const tenant = db.getTenant(session.tenant_id);
+      if (!tenant || tenant.status === 'suspended' || !tenant.dashboard_enabled) {
+        res.status(401).json({ isAuthenticated: false, error: 'Session restricted or terminated' });
+        return;
+      }
+      res.json({
+        isAuthenticated: true,
+        role: 'tenant',
+        tenant_id: tenant.tenant_id,
+        name: tenant.name,
+        bot_username: tenant.bot_username,
+        status: tenant.status,
+        password_reset_required: tenant.dashboard_password_reset_required
+      });
+    } else if (session.role === 'master') {
+      res.json({
+        isAuthenticated: true,
+        role: 'master',
+        username: 'Master Owner'
+      });
+    } else {
+      res.status(401).json({ isAuthenticated: false });
+    }
+  } catch (err: any) {
+    console.error('[AUTH_ME_ERROR]', err?.message, err?.stack);
+    res.status(500).json({ error: 'Internal server error', isAuthenticated: false });
   }
 });
 
 // POST /api/auth/tenant-login
 app.post('/api/auth/tenant-login', async (req: Request, res: Response) => {
-  const { tenant_id, password } = req.body;
+  try {
+    const { tenant_id, password } = req.body;
 
-  if (!tenant_id || !password) {
-    res.status(400).json({ error: 'Tenant ID and Password are required.' });
-    return;
-  }
+    if (!tenant_id || !password) {
+      res.status(400).json({ error: 'Tenant ID and Password are required.' });
+      return;
+    }
 
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -445,36 +467,50 @@ app.post('/api/auth/tenant-login', async (req: Request, res: Response) => {
   await setSession(sessionId, { role: 'tenant', tenant_id: resolvedId });
   res.cookie('berry_session_id', sessionId, { httpOnly: true, path: '/' });
   res.json({ status: 'success', role: 'tenant', tenant_id: resolvedId, name: tenant.name });
+  } catch (err: any) {
+    console.error('[LOGIN_ERROR]', err?.message, err?.stack);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // POST /api/auth/master-login
 app.post('/api/auth/master-login', async (req: Request, res: Response) => {
-  const { master_secret } = req.body;
+  try {
+    const { master_secret } = req.body;
 
-  if (!master_secret) {
-    res.status(400).json({ error: 'Master secret key is required.' });
-    return;
+    if (!master_secret) {
+      res.status(400).json({ error: 'Master secret key is required.' });
+      return;
+    }
+
+    if (master_secret !== MASTER_ADMIN_SECRET) {
+      res.status(401).json({ error: 'Incorrect master secret admin credentials.' });
+      return;
+    }
+
+    const sessionId = 'master_' + crypto.randomUUID();
+    await setSession(sessionId, { role: 'master' });
+    res.cookie('berry_session_id', sessionId, { httpOnly: true, path: '/' });
+    res.json({ status: 'success', role: 'master', username: 'Master Owner' });
+  } catch (err: any) {
+    console.error('[MASTER_LOGIN_ERROR]', err?.message, err?.stack);
+    res.status(500).json({ error: 'Internal server error' });
   }
-
-  if (master_secret !== MASTER_ADMIN_SECRET) {
-    res.status(401).json({ error: 'Incorrect master secret admin credentials.' });
-    return;
-  }
-
-  const sessionId = 'master_' + crypto.randomUUID();
-  await setSession(sessionId, { role: 'master' });
-  res.cookie('berry_session_id', sessionId, { httpOnly: true, path: '/' });
-  res.json({ status: 'success', role: 'master', username: 'Master Owner' });
 });
 
 // POST /api/auth/logout
 app.post('/api/auth/logout', async (req: Request, res: Response) => {
-  const sessionId = req.cookies.berry_session_id;
-  if (sessionId) {
-    await deleteSession(sessionId);
+  try {
+    const sessionId = req.cookies.berry_session_id;
+    if (sessionId) {
+      await deleteSession(sessionId);
+    }
+    res.clearCookie('berry_session_id', { path: '/' });
+    res.json({ status: 'success', message: 'Logged out successfully' });
+  } catch (err: any) {
+    console.error('[LOGOUT_ERROR]', err?.message, err?.stack);
+    res.status(500).json({ error: 'Internal server error' });
   }
-  res.clearCookie('berry_session_id', { path: '/' });
-  res.json({ status: 'success', message: 'Logged out successfully' });
 });
 
 // -------------------------------------------------------------------
@@ -3118,5 +3154,11 @@ app.get('/api/debug/tenant-data', requireTenantAuth, async (req: Request, res: R
 // -------------------------------------------------------------------
 // MASTER OWNER API (Require requireMasterAuth)
 // -------------------------------------------------------------------
+
+// Global Express error handler
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  console.error('[UNHANDLED_ERROR]', err?.message, err?.stack);
+  res.status(500).json({ error: err?.message || 'Internal server error' });
+});
 
 export default app;
