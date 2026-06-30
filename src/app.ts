@@ -7,8 +7,8 @@ import WebSocket from 'ws';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 
-import { db, hashPassword, verifyPassword } from './server-db';
-import { Tenant } from './types';
+import { db, hashPassword, verifyPassword } from './server-db.js';
+import { Tenant } from './types.js';
 
 // Initialize Supabase Storage Client (Server-side only)
 const supabaseUrl = process.env.SUPABASE_URL || '';
