@@ -1,4 +1,5 @@
 import fs from 'fs';
+import crypto from 'crypto';
 import express, { Request, Response, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import path from 'path';
@@ -138,7 +139,37 @@ const upload = multer({
   }
 });
 
-// Session manager — Supabase in production, in-memory Map + JSON fallback for local dev
+// Session key for signing (must be stable across restarts for cookie-based sessions)
+const SESSION_SIGNING_KEY = process.env.SESSION_SIGNING_KEY || process.env.MASTER_ADMIN_SECRET || 'berry_default_session_secret_2026';
+
+function signSessionData(data: string): string {
+  return crypto.createHmac('sha256', SESSION_SIGNING_KEY).update(data).digest('hex').slice(0, 16);
+}
+
+function encodeSessionCookie(data: { role: 'tenant' | 'master'; tenant_id?: string; username?: string }): string {
+  const payload = Buffer.from(JSON.stringify(data)).toString('base64');
+  const sig = signSessionData(payload);
+  return payload + '.' + sig;
+}
+
+function decodeSessionCookie(raw: string): { role: 'tenant' | 'master'; tenant_id?: string; username?: string } | null {
+  const dot = raw.indexOf('.');
+  if (dot === -1) return null;
+  const payload = raw.slice(0, dot);
+  const sig = raw.slice(dot + 1);
+  const expectedSig = signSessionData(payload);
+  if (sig.length !== expectedSig.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) {
+    return null;
+  }
+  try {
+    return JSON.parse(Buffer.from(payload, 'base64').toString('utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+// Session manager — 3-tier: 1) signed cookie (stateless, works on Vercel cold start),
+// 2) Supabase berry_sessions table (if available), 3) in-memory Map + JSON file (local dev)
 const sessions = new Map<string, { role: 'tenant' | 'master'; tenant_id?: string; username?: string }>();
 const SESSION_FILE = path.join(process.cwd(), '.berry_sessions.json');
 
@@ -171,6 +202,7 @@ function saveSessionsLocal() {
 let _sessionsTableMissing = false;
 
 async function getSessionById(sessionId: string): Promise<{ role: 'tenant' | 'master'; tenant_id?: string; username?: string } | null> {
+  // Try Supabase first (persistent across instances)
   if (supabase && !_sessionsTableMissing) {
     const { data, error } = await supabase.from('berry_sessions').select('data').eq('id', sessionId).maybeSingle();
     if (error) {
@@ -180,10 +212,11 @@ async function getSessionById(sessionId: string): Promise<{ role: 'tenant' | 'ma
       } else {
         console.warn('[SESSION] Supabase lookup error:', error.message);
       }
-      return sessions.get(sessionId) || null;
+    } else if (data?.data) {
+      return data.data;
     }
-    return data?.data || null;
   }
+  // Fallback: try in-memory map (same instance) or signed cookie
   return sessions.get(sessionId) || null;
 }
 
@@ -218,6 +251,18 @@ async function deleteSession(sessionId: string) {
 
 loadSessionsLocal();
 
+// Helper: set both session ID cookie and signed data cookie
+function setSessionCookie(res: Response, sessionData: { role: 'tenant' | 'master'; tenant_id?: string; username?: string }) {
+  const sessionId = 'sess_' + crypto.randomUUID();
+  // Store in Map + Supabase for lookup-based fallback
+  setSession(sessionId, sessionData);
+  // Set session ID cookie (for Map/Supabase lookup)
+  res.cookie('berry_session_id', sessionId, { httpOnly: true, path: '/' });
+  // Set signed data cookie (stateless — works on cold start without DB)
+  res.cookie('berry_session_data', encodeSessionCookie(sessionData), { httpOnly: true, path: '/' });
+  return sessionId;
+}
+
 // Secret key configurations
 const MASTER_ADMIN_SECRET = process.env.MASTER_ADMIN_SECRET || 'berry_master_secret_2026';
 
@@ -250,6 +295,13 @@ function getDaysRemaining(rentEndStr: string): number {
 
 // Session Auth Middlewares
 async function getSession(req: Request) {
+  // Try signed cookie first (stateless, works on cold start without DB)
+  const signedData = req.cookies.berry_session_data;
+  if (signedData) {
+    const decoded = decodeSessionCookie(signedData);
+    if (decoded) return decoded;
+  }
+  // Fallback: lookup by session ID (Supabase or Map)
   const sessionId = req.cookies.berry_session_id;
   if (!sessionId) return null;
   return getSessionById(sessionId);
@@ -494,9 +546,7 @@ app.post('/api/auth/tenant-login', async (req: Request, res: Response) => {
     db.log(resolvedId, "FIRST_TIME_PASSWORD_SETUP", "Customer completed first-time login and created dashboard credentials");
 
     // Success login
-    const sessionId = 'sess_' + crypto.randomUUID();
-    await setSession(sessionId, { role: 'tenant', tenant_id: resolvedId });
-    res.cookie('berry_session_id', sessionId, { httpOnly: true, path: '/' });
+    setSessionCookie(res, { role: 'tenant', tenant_id: resolvedId });
     res.json({ status: 'success', role: 'tenant', tenant_id: resolvedId, name: tenant.name, message: 'Password set and logged in matches successfully.' });
     return;
   }
@@ -513,9 +563,7 @@ app.post('/api/auth/tenant-login', async (req: Request, res: Response) => {
     });
     db.log(resolvedId, "PASSWORD_RESET_COMPLETED", "Owner set new dashboard password following reset instruction");
 
-    const sessionId = 'sess_' + crypto.randomUUID();
-    await setSession(sessionId, { role: 'tenant', tenant_id: resolvedId });
-    res.cookie('berry_session_id', sessionId, { httpOnly: true, path: '/' });
+    setSessionCookie(res, { role: 'tenant', tenant_id: resolvedId });
     res.json({ status: 'success', role: 'tenant', tenant_id: resolvedId, name: tenant.name });
     return;
   }
@@ -531,9 +579,7 @@ app.post('/api/auth/tenant-login', async (req: Request, res: Response) => {
   db.updateTenant(resolvedId, { dashboard_last_login_at: now });
   db.log(resolvedId, "LOGIN_SUCCESS", "Dashboard user logged in successfully");
 
-  const sessionId = 'sess_' + crypto.randomUUID();
-  await setSession(sessionId, { role: 'tenant', tenant_id: resolvedId });
-  res.cookie('berry_session_id', sessionId, { httpOnly: true, path: '/' });
+  setSessionCookie(res, { role: 'tenant', tenant_id: resolvedId });
   res.json({ status: 'success', role: 'tenant', tenant_id: resolvedId, name: tenant.name });
   } catch (err: any) {
     console.error('[LOGIN_ERROR]', err?.message, err?.stack);
@@ -556,9 +602,7 @@ app.post('/api/auth/master-login', async (req: Request, res: Response) => {
       return;
     }
 
-    const sessionId = 'master_' + crypto.randomUUID();
-    await setSession(sessionId, { role: 'master' });
-    res.cookie('berry_session_id', sessionId, { httpOnly: true, path: '/' });
+    setSessionCookie(res, { role: 'master' });
     res.json({ status: 'success', role: 'master', username: 'Master Owner' });
   } catch (err: any) {
     console.error('[MASTER_LOGIN_ERROR]', err?.message, err?.stack);
@@ -574,6 +618,7 @@ app.post('/api/auth/logout', async (req: Request, res: Response) => {
       await deleteSession(sessionId);
     }
     res.clearCookie('berry_session_id', { path: '/' });
+    res.clearCookie('berry_session_data', { path: '/' });
     res.json({ status: 'success', message: 'Logged out successfully' });
   } catch (err: any) {
     console.error('[LOGOUT_ERROR]', err?.message, err?.stack);

@@ -89,6 +89,7 @@ export function TenantSettings({ settings, loading, onUpdateSetting, onRefresh }
     try {
       const res = await fetch('/api/tenant/assets/upload', {
         method: 'POST',
+        credentials: 'include',
         body: formData
       });
       const data = await res.json();
@@ -121,6 +122,7 @@ export function TenantSettings({ settings, loading, onUpdateSetting, onRefresh }
     try {
       const res = await fetch('/api/tenant/assets/upload', {
         method: 'POST',
+        credentials: 'include',
         body: formData
       });
       const data = await res.json();
@@ -144,7 +146,8 @@ export function TenantSettings({ settings, loading, onUpdateSetting, onRefresh }
     setUploadingQR(true);
     try {
       const res = await fetch('/api/tenant/media/payment-qr', {
-        method: 'DELETE'
+        method: 'DELETE',
+        credentials: 'include',
       });
       if (!res.ok) {
         const data = await res.json();
@@ -166,7 +169,8 @@ export function TenantSettings({ settings, loading, onUpdateSetting, onRefresh }
     setUploadingBanner(true);
     try {
       const res = await fetch('/api/tenant/media/banner', {
-        method: 'DELETE'
+        method: 'DELETE',
+        credentials: 'include',
       });
       if (!res.ok) {
         const data = await res.json();
