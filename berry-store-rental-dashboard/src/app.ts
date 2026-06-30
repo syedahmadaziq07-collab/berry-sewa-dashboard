@@ -27,14 +27,29 @@ if (!supabase && process.env.NODE_ENV === 'production') {
 (async () => {
   if (!supabase) return;
   try {
+    // Migration: ensure berry_sessions table exists
+    const { error: sessionsErr } = await supabase.from('berry_sessions').select('id').limit(0);
+    const sessionsTableExists = !(sessionsErr && (sessionsErr.message?.includes('does not exist') || sessionsErr.message?.includes('relation')));
+    if (!sessionsTableExists) {
+      console.log('[MIGRATION] berry_sessions table missing — attempting auto-create...');
+      const sql = 'create table if not exists public.berry_sessions (id text primary key, data jsonb not null, created_at timestamptz default now());';
+      const ok = await supabase.rpc('exec_sql', { sql }).catch(() => null)
+        || await supabase.rpc('exec', { query_text: sql }).catch(() => null);
+      if (ok) {
+        console.log('[MIGRATION] berry_sessions table created');
+      } else {
+        console.warn('[MIGRATION] Cannot auto-create berry_sessions table — sessions will NOT persist across cold starts. Create manually: CREATE TABLE IF NOT EXISTS public.berry_sessions (id TEXT PRIMARY KEY, data JSONB NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW());');
+      }
+    }
+
     const { error: variantErr } = await supabase.from('credentials').select('variant_id').limit(0);
     const variantExists = !(variantErr && variantErr.message?.includes('does not exist'));
     if (!variantExists) {
       console.log('[MIGRATION] credentials.variant_id missing — attempting auto-add...');
-      const sql = 'alter table public.credentials add column if not exists variant_id bigint;';
-      const ok = await supabase.rpc('exec_sql', { sql }).catch(() => null)
-        || await supabase.rpc('exec', { query_text: sql }).catch(() => null);
-      if (ok) {
+      const sql2 = 'alter table public.credentials add column if not exists variant_id bigint;';
+      const ok2 = await supabase.rpc('exec_sql', { sql: sql2 }).catch(() => null)
+        || await supabase.rpc('exec', { query_text: sql2 }).catch(() => null);
+      if (ok2) {
         console.log('[MIGRATION] credentials.variant_id added');
       } else {
         console.log('[MIGRATION] Cannot auto-add credentials.variant_id — run manually if needed: ALTER TABLE public.credentials ADD COLUMN IF NOT EXISTS variant_id bigint;');
@@ -151,11 +166,18 @@ function saveSessionsLocal() {
   }
 }
 
+let _sessionsTableMissing = false;
+
 async function getSessionById(sessionId: string): Promise<{ role: 'tenant' | 'master'; tenant_id?: string; username?: string } | null> {
-  if (supabase) {
+  if (supabase && !_sessionsTableMissing) {
     const { data, error } = await supabase.from('berry_sessions').select('data').eq('id', sessionId).maybeSingle();
     if (error) {
-      console.warn('[SESSION] Supabase lookup error:', error.message);
+      if (error.message?.includes('does not exist') || error.message?.includes('relation')) {
+        _sessionsTableMissing = true;
+        console.warn('[SESSION] berry_sessions table missing — sessions will NOT persist across cold starts. Create table manually in Supabase SQL Editor: CREATE TABLE IF NOT EXISTS public.berry_sessions (id TEXT PRIMARY KEY, data JSONB NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW());');
+      } else {
+        console.warn('[SESSION] Supabase lookup error:', error.message);
+      }
       return sessions.get(sessionId) || null;
     }
     return data?.data || null;
@@ -164,21 +186,32 @@ async function getSessionById(sessionId: string): Promise<{ role: 'tenant' | 'ma
 }
 
 async function setSession(sessionId: string, data: { role: 'tenant' | 'master'; tenant_id?: string; username?: string }) {
-  if (supabase) {
-    const { error } = await supabase.from('berry_sessions').upsert({ id: sessionId, data }, { onConflict: 'id' });
-    if (error) console.warn('[SESSION] Supabase upsert error:', error.message);
-  }
   sessions.set(sessionId, data);
   saveSessionsLocal();
+  if (supabase && !_sessionsTableMissing) {
+    const { error } = await supabase.from('berry_sessions').upsert({ id: sessionId, data }, { onConflict: 'id' });
+    if (error) {
+      if (error.message?.includes('does not exist') || error.message?.includes('relation')) {
+        _sessionsTableMissing = true;
+        console.warn('[SESSION] berry_sessions table missing — session saved locally only (will not persist across cold starts).');
+      } else {
+        console.warn('[SESSION] Supabase upsert error:', error.message);
+      }
+    }
+  }
 }
 
 async function deleteSession(sessionId: string) {
-  if (supabase) {
-    const { error } = await supabase.from('berry_sessions').delete().eq('id', sessionId);
-    if (error) console.warn('[SESSION] Supabase delete error:', error.message);
-  }
   sessions.delete(sessionId);
   saveSessionsLocal();
+  if (supabase && !_sessionsTableMissing) {
+    const { error } = await supabase.from('berry_sessions').delete().eq('id', sessionId);
+    if (error) {
+      if (!error.message?.includes('does not exist') && !error.message?.includes('relation')) {
+        console.warn('[SESSION] Supabase delete error:', error.message);
+      }
+    }
+  }
 }
 
 loadSessionsLocal();
