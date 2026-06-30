@@ -17,6 +17,34 @@ import { TenantCredentials } from './components/TenantCredentials';
 import { MasterViews } from './components/MasterViews';
 import { TenantBotHealth } from './components/TenantBotHealth';
 
+// Error boundary to catch render crashes and show useful errors
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
+  state = { hasError: false, error: null as Error | null };
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('[ERROR_BOUNDARY]', error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-50/70 flex items-center justify-center p-8">
+          <div className="bg-white rounded-3xl border border-red-100 shadow-sm max-w-lg w-full p-8 text-center space-y-4">
+            <AlertCircle className="w-12 h-12 text-red-500 mx-auto" />
+            <h2 className="text-lg font-bold text-gray-900">Something went wrong</h2>
+            <p className="text-sm text-red-600 bg-red-50 rounded-xl p-3 font-mono">{this.state.error?.message}</p>
+            <button onClick={() => window.location.reload()} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-all cursor-pointer">
+              Reload Page
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   // Session details mapping state
   const [auth, setAuth] = useState<any | null>(null);
@@ -100,17 +128,23 @@ export default function App() {
         credRes.json()
       ]);
 
-      setOverviewData(overview);
-      setProducts(prodList || []);
-      setVariants(varList || []);
-      setSettings(setList || []);
-      setCredentials(credList || []);
+      setOverviewData(overview && !Array.isArray(overview) ? overview : null);
+      setProducts(Array.isArray(prodList) ? prodList : []);
+      setVariants(Array.isArray(varList) ? varList : []);
+      setSettings(Array.isArray(setList) ? setList : []);
+      setCredentials(Array.isArray(credList) ? credList : []);
       
       // Load orders based on filters
       await refreshOrders('all', '');
 
     } catch (err) {
       console.error("Failed loading tenant statistics", err);
+      setOverviewData(null);
+      setProducts([]);
+      setVariants([]);
+      setSettings([]);
+      setCredentials([]);
+      setOrders([]);
     } finally {
       setTenantOverviewLoading(false);
     }
@@ -123,9 +157,10 @@ export default function App() {
       if (search) query.set('search', search);
       const res = await fetch(`/api/tenant/orders?${query.toString()}`, { credentials: 'include' });
       const list = await res.json();
-      setOrders(list || []);
+      setOrders(Array.isArray(list) ? list : []);
     } catch (e) {
       console.error(e);
+      setOrders([]);
     }
   };
 
@@ -144,11 +179,14 @@ export default function App() {
         monitorRes.json()
       ]);
 
-      setMasterOverview(overview);
-      setMasterTenants(tenantsList || []);
-      setMasterMonitor(monitorList);
+      setMasterOverview(overview && !Array.isArray(overview) ? overview : null);
+      setMasterTenants(Array.isArray(tenantsList) ? tenantsList : []);
+      setMasterMonitor(monitorList && !Array.isArray(monitorList) ? monitorList : null);
     } catch (err) {
       console.error("Failed loading system master views", err);
+      setMasterOverview(null);
+      setMasterTenants([]);
+      setMasterMonitor(null);
     } finally {
       setTenantOverviewLoading(false);
     }
@@ -172,7 +210,7 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok && data.status === 'success') {
-        setAuth({ role: 'tenant', tenant_id: data.tenant_id, name: data.name });
+        setAuth({ role: 'tenant', tenant_id: data.tenant_id, name: data.name, bot_username: data.bot_username || '' });
         setActiveTab('overview');
         loadTenantData();
       } else {
@@ -608,6 +646,7 @@ export default function App() {
 
   // Authenticated Screen Assembly
   return (
+    <ErrorBoundary>
     <div className="min-h-screen bg-slate-50/50 flex flex-col md:flex-row font-sans text-xs">
       
       {/* Navigation layouts sidebar/bottom sticky */}
@@ -779,7 +818,7 @@ export default function App() {
                     <div className="flex space-x-2">
                       <div className="w-8 h-8 rounded-full bg-blue-500 text-white font-bold flex items-center justify-center font-mono">B</div>
                       <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 max-w-sm flex flex-col gap-1 gap-y-1 text-[11px]">
-                        <p className="font-bold text-blue-600">@{auth.bot_username.replace('@','')}</p>
+                        <p className="font-bold text-blue-600">@{auth.bot_username?.replace('@','') || 'your_bot'}</p>
                         <p className="text-gray-800 leading-normal">
                           [Draft broadcast message template will appear here inside Telegram bubble after click...]
                         </p>
@@ -851,5 +890,6 @@ export default function App() {
       </main>
 
     </div>
+    </ErrorBoundary>
   );
 }
