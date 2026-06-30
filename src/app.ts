@@ -143,6 +143,7 @@ const sessions = new Map<string, { role: 'tenant' | 'master'; tenant_id?: string
 const SESSION_FILE = path.join(process.cwd(), '.berry_sessions.json');
 
 function loadSessionsLocal() {
+  if (process.env.VERCEL || process.env.NODE_ENV === 'production') return;
   try {
     if (fs.existsSync(SESSION_FILE)) {
       const raw = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf-8'));
@@ -157,6 +158,7 @@ function loadSessionsLocal() {
 }
 
 function saveSessionsLocal() {
+  if (process.env.VERCEL || process.env.NODE_ENV === 'production') return;
   try {
     const obj: Record<string, any> = {};
     for (const [k, v] of sessions.entries()) obj[k] = v;
@@ -261,8 +263,7 @@ async function requireTenantAuth(req: Request, res: Response, next: NextFunction
       return;
     }
     
-    // Double-check if tenant was suspended, disabled or expired in real-time
-    const tenant = db.getTenant(session.tenant_id);
+    const tenant = await resolveTenant(session.tenant_id);
     if (!tenant) {
       res.status(401).json({ error: 'Tenant no longer exists' });
       return;
@@ -276,7 +277,6 @@ async function requireTenantAuth(req: Request, res: Response, next: NextFunction
       return;
     }
     
-    // Attach tenant context
     (req as any).tenant_id = session.tenant_id;
     next();
   } catch (err: any) {
@@ -303,6 +303,41 @@ async function requireMasterAuth(req: Request, res: Response, next: NextFunction
 // AUTHENTICATION ENDPOINTS
 // -------------------------------------------------------------------
 
+// Helper: resolve tenant from local DB or Supabase, creating in-memory record if needed
+async function resolveTenant(tenantId: string): Promise<any> {
+  let tenant = db.getTenant(tenantId);
+  if (!tenant && supabase) {
+    const { data: st } = await supabase
+      .from('tenants')
+      .select('*')
+      .eq('id', tenantId)
+      .maybeSingle();
+    if (st) {
+      tenant = db.createTenant({
+        tenant_id: st.id,
+        name: st.name || '',
+        bot_username: st.bot_username || '',
+        owner_telegram_id: String(st.owner_telegram_id || ''),
+        owner_username: st.owner_username || '',
+        monthly_price: Number(st.monthly_price || 0),
+        status: st.status || 'active',
+        rent_start: st.rent_start || new Date().toISOString(),
+        rent_end: st.rent_end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        dashboard_enabled: st.dashboard_enabled !== false,
+        dashboard_secret_hash: st.dashboard_secret_hash || null,
+        dashboard_password_set_at: st.dashboard_password_set_at || null,
+        dashboard_first_login_at: st.dashboard_first_login_at || null,
+        dashboard_last_login_at: st.dashboard_last_login_at || null,
+        dashboard_password_reset_required: st.dashboard_password_reset_required || false,
+        service_url: st.service_url || '',
+        notes: st.notes || '',
+        created_at: st.created_at || new Date().toISOString(),
+      });
+    }
+  }
+  return tenant;
+}
+
 // GET /api/auth/me
 app.get('/api/auth/me', async (req: Request, res: Response) => {
   try {
@@ -313,7 +348,7 @@ app.get('/api/auth/me', async (req: Request, res: Response) => {
     }
 
     if (session.role === 'tenant' && session.tenant_id) {
-      const tenant = db.getTenant(session.tenant_id);
+      const tenant = await resolveTenant(session.tenant_id);
       if (!tenant || tenant.status === 'suspended' || !tenant.dashboard_enabled) {
         res.status(401).json({ isAuthenticated: false, error: 'Session restricted or terminated' });
         return;

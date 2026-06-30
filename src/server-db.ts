@@ -212,11 +212,18 @@ class FileDatabase {
   private data: DBStructure;
 
   constructor() {
-    this.data = { ...initialDB };
+    this.data = JSON.parse(JSON.stringify(initialDB));
     this.load();
   }
 
+  private get isProduction(): boolean {
+    return !!(process.env.VERCEL || process.env.NODE_ENV === 'production');
+  }
+
   load() {
+    if (this.isProduction) {
+      return;
+    }
     try {
       if (fs.existsSync(BACKUP_PATH)) {
         const fileContent = fs.readFileSync(BACKUP_PATH, 'utf-8');
@@ -242,6 +249,9 @@ class FileDatabase {
   }
 
   save() {
+    if (this.isProduction) {
+      return;
+    }
     try {
       fs.writeFileSync(BACKUP_PATH, JSON.stringify(this.data, null, 2), 'utf-8');
     } catch (e) {
